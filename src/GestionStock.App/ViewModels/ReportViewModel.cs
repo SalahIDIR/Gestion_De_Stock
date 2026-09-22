@@ -99,10 +99,11 @@ public partial class ReportViewModel : ViewModelBase
             .ToList();
 
         Items.Clear();
-        foreach (var r in rows) Items.Add(new OperationRowView(r));
+        foreach (var r in rows.Where(r => r.IncludeInList)) Items.Add(new OperationRowView(r));
 
         TotalAchats = rows.Where(r => r.Type == "Achat").Sum(r => r.Total);
         TotalVentes = rows.Where(r => r.Type == "Vente").Sum(r => r.Total);
+        // Inclut l'argent encaissé au moment d'une vente, même si cette ligne n'apparaît pas dans le tableau.
         TotalEncaissements = rows.Where(r => r.Type == "Encaissement").Sum(r => r.Total);
     }
 

@@ -13,7 +13,12 @@ public record OperationRow(
     string? ProductColorHex,
     decimal? Quantity,
     decimal? Rate,
-    decimal Total);
+    decimal Total,
+    /// <summary>
+    /// Faux pour le montant encaissé au moment d'une vente : il compte dans le total des encaissements
+    /// mais n'apparaît pas comme une ligne séparée, la vente étant déjà listée pour son montant facturé.
+    /// </summary>
+    bool IncludeInList = true);
 
 /// <summary>Rassemble achats, ventes et encaissements en un flux unique pour le rapport et l'audit.</summary>
 public class ReportService
@@ -39,12 +44,22 @@ public class ReportService
         foreach (var note in deliveries)
         {
             if (note.Lines.Count == 0)
+            {
                 rows.Add(new OperationRow(note.Date, "Encaissement", note.Number, note.Client?.Name ?? "",
                     null, null, null, null, note.AmountPaid));
+            }
             else
+            {
                 foreach (var line in note.Lines)
                     rows.Add(new OperationRow(note.Date, "Vente", note.Number, note.Client?.Name ?? "",
                         line.Product?.Name, line.Product?.ColorHex, line.Quantity, line.UnitPrice, line.LineTotal));
+
+                // L'argent encaissé en même temps qu'une vente est de l'argent réellement entré en caisse :
+                // il doit compter dans le total des encaissements, sans dupliquer la vente dans le tableau.
+                if (note.AmountPaid > 0)
+                    rows.Add(new OperationRow(note.Date, "Encaissement", note.Number, note.Client?.Name ?? "",
+                        null, null, null, null, note.AmountPaid, IncludeInList: false));
+            }
         }
 
         var payments = await db.ClientPayments.AsNoTracking().Include(p => p.Client).ToListAsync();
