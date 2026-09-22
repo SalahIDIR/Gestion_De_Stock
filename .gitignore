@@ -1,0 +1,5 @@
+﻿bin/
+obj/
+.vs/
+*.db
+design-time.db*

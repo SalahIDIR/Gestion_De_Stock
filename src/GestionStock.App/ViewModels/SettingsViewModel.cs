@@ -1,0 +1,101 @@
+using System.Collections.ObjectModel;
+using System.IO.Ports;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using GestionStock.Core.Domain;
+using GestionStock.Core.Services;
+
+namespace GestionStock.App.ViewModels;
+
+/// <summary>Ligne du tableau de routage : un opérateur, son port COM et sa requête USSD.</summary>
+public partial class OperatorRouting : ObservableObject
+{
+    public OperatorRouting(Operator op)
+    {
+        Operator = op;
+        _comPort = op.ComPort ?? "";
+        _ussdTemplate = op.UssdTemplate ?? "";
+    }
+
+    public Operator Operator { get; }
+    public string Name => Operator.Name;
+
+    [ObservableProperty] private string _comPort;
+    [ObservableProperty] private string _ussdTemplate;
+}
+
+public partial class SettingsViewModel : ViewModelBase
+{
+    private readonly SettingsService _settings;
+    private readonly AuthService _auth;
+    private readonly User _user;
+
+    public SettingsViewModel(SettingsService settings, AuthService auth, User user)
+    {
+        _settings = settings;
+        _auth = auth;
+        _user = user;
+
+        try { foreach (var port in SerialPort.GetPortNames().Order()) AvailablePorts.Add(port); }
+        catch { /* La liste des ports détectés est une aide : la saisie manuelle reste possible. */ }
+
+        _ = LoadAsync();
+    }
+
+    public ObservableCollection<OperatorRouting> Routing { get; } = new();
+    public ObservableCollection<string> AvailablePorts { get; } = new();
+
+    [ObservableProperty] private string _companyEmail = "";
+    [ObservableProperty] private DateTime? _inventoryStart;
+    [ObservableProperty] private DateTime? _inventoryEnd;
+
+    [ObservableProperty] private string _currentPassword = "";
+    [ObservableProperty] private string _newPassword = "";
+    [ObservableProperty] private string _confirmNewPassword = "";
+
+    public string PortsHint => AvailablePorts.Count == 0
+        ? "Aucun port COM détecté. Branchez les modems puis rouvrez cette page."
+        : $"Ports détectés : {string.Join(", ", AvailablePorts)}";
+
+    private async Task LoadAsync()
+    {
+        await TryAsync(async () =>
+        {
+            var s = await _settings.GetAsync();
+            CompanyEmail = s.CompanyEmail;
+            InventoryStart = s.InventoryStart;
+            InventoryEnd = s.InventoryEnd;
+
+            Routing.Clear();
+            foreach (var op in await _settings.GetOperatorsAsync()) Routing.Add(new OperatorRouting(op));
+        });
+    }
+
+    [RelayCommand]
+    private async Task SaveGeneralAsync()
+    {
+        var ok = await TryAsync(() => _settings.SaveAsync(new AppSettings
+        {
+            CompanyEmail = CompanyEmail, InventoryStart = InventoryStart, InventoryEnd = InventoryEnd,
+        }));
+        if (ok) Info("Paramètres enregistrés.");
+    }
+
+    [RelayCommand]
+    private async Task SaveRoutingAsync(OperatorRouting? row)
+    {
+        if (row == null) return;
+        var ok = await TryAsync(() => _settings.SaveOperatorRoutingAsync(row.Operator.Id, row.ComPort, row.UssdTemplate));
+        if (ok) Info($"Routage de {row.Name} enregistré.");
+    }
+
+    [RelayCommand]
+    private async Task ChangePasswordAsync()
+    {
+        if (NewPassword != ConfirmNewPassword) { Info("Les deux nouveaux mots de passe sont différents."); return; }
+        var ok = await TryAsync(() => _auth.ChangePasswordAsync(_user.Id, CurrentPassword, NewPassword));
+        if (!ok) return;
+        CurrentPassword = NewPassword = ConfirmNewPassword = "";
+        Info("Mot de passe modifié.");
+    }
+}

@@ -1,0 +1,31 @@
+<Window x:Class="GestionStock.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Gestion Stock" Width="1440" Height="800" MinWidth="1200" MinHeight="640"
+        WindowStartupLocation="CenterScreen" Background="{StaticResource Surface}">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="210"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <DockPanel Background="{StaticResource Accent}">
+            <StackPanel DockPanel.Dock="Top" Margin="18,20,18,20">
+                <TextBlock Text="Gestion Stock" Foreground="White" FontSize="18" FontWeight="SemiBold"/>
+                <TextBlock Foreground="#B5C7DA" FontSize="12" Margin="0,4,0,0">
+                    <Run Text="Connecté : "/><Run Text="{Binding CurrentUser.Username, Mode=OneWay}"/>
+                </TextBlock>
+            </StackPanel>
+            <StackPanel DockPanel.Dock="Top">
+                <Button Content="Bons de livraison" Command="{Binding ShowDeliveriesCommand}" Style="{StaticResource NavButton}"/>
+                <Button Content="Bons d'achat" Command="{Binding ShowPurchasesCommand}" Style="{StaticResource NavButton}"/>
+                <Button Content="Produits &amp; stock" Command="{Binding ShowProductsCommand}" Style="{StaticResource NavButton}"/>
+                <Button Content="Fournisseurs" Command="{Binding ShowSuppliersCommand}" Style="{StaticResource NavButton}"/>
+                <Button Content="Clients" Command="{Binding ShowClientsCommand}" Style="{StaticResource NavButton}"/>
+                <Button Content="Paramètres" Command="{Binding ShowSettingsCommand}" Style="{StaticResource NavButton}"/>
+            </StackPanel>
+        </DockPanel>
+
+        <ContentControl Grid.Column="1" Content="{Binding CurrentPage}" Margin="24"/>
+    </Grid>
+</Window>

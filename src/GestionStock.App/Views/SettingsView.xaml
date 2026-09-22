@@ -1,0 +1,81 @@
+<UserControl x:Class="GestionStock.App.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:GestionStock.App.Views">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel MaxWidth="820" HorizontalAlignment="Left">
+            <TextBlock Text="Paramètres" Style="{StaticResource Title}"/>
+
+            <!-- Général -->
+            <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="18" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Général" Style="{StaticResource Section}" Margin="0,0,0,10"/>
+                    <TextBlock Text="E-mail de l'entreprise" Style="{StaticResource FieldLabel}"/>
+                    <TextBox Text="{Binding CompanyEmail, UpdateSourceTrigger=PropertyChanged}"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Début de l'inventaire comptable" Style="{StaticResource FieldLabel}"/>
+                            <DatePicker SelectedDate="{Binding InventoryStart}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Fin de l'inventaire comptable" Style="{StaticResource FieldLabel}"/>
+                            <DatePicker SelectedDate="{Binding InventoryEnd}"/>
+                        </StackPanel>
+                    </Grid>
+                    <Button Content="Enregistrer" Command="{Binding SaveGeneralCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Routage matériel -->
+            <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="18" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Routage matériel (ports COM) et requêtes USSD" Style="{StaticResource Section}" Margin="0,0,0,4"/>
+                    <TextBlock Text="{Binding PortsHint}" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
+                    <TextBlock Style="{StaticResource FieldLabel}" TextWrapping="Wrap" Margin="0,0,0,10"
+                               Text="Assignez un port COM à chaque opérateur. La requête USSD est un modèle avec les variables {numero} et {montant}. Ces réglages seront utilisés lors des transferts de crédit."/>
+                    <ItemsControl ItemsSource="{Binding Routing}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="90"/>
+                                        <ColumnDefinition Width="130"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1" IsEditable="True" Margin="0,0,8,0"
+                                              ItemsSource="{Binding DataContext.AvailablePorts, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              Text="{Binding ComPort, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBox Grid.Column="2" Margin="0,0,8,0" Text="{Binding UssdTemplate, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <Button Grid.Column="3" Content="Enregistrer" Margin="0"
+                                            Command="{Binding DataContext.SaveRoutingCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <!-- Mot de passe -->
+            <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="18" Margin="0,0,0,16">
+                <StackPanel MaxWidth="320" HorizontalAlignment="Left">
+                    <TextBlock Text="Mot de passe administrateur" Style="{StaticResource Section}" Margin="0,0,0,10"/>
+                    <TextBlock Text="Mot de passe actuel" Style="{StaticResource FieldLabel}"/>
+                    <PasswordBox views:PasswordBoxHelper.BoundPassword="{Binding CurrentPassword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                    <TextBlock Text="Nouveau mot de passe" Style="{StaticResource FieldLabel}"/>
+                    <PasswordBox views:PasswordBoxHelper.BoundPassword="{Binding NewPassword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                    <TextBlock Text="Confirmer le nouveau mot de passe" Style="{StaticResource FieldLabel}"/>
+                    <PasswordBox views:PasswordBoxHelper.BoundPassword="{Binding ConfirmNewPassword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                    <Button Content="Modifier le mot de passe" Command="{Binding ChangePasswordCommand}" HorizontalAlignment="Left"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
