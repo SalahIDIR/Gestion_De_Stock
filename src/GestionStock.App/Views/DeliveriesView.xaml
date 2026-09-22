@@ -79,10 +79,7 @@
         <Border Grid.Column="2" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="18">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top">
-                    <DockPanel Margin="0,0,0,12">
-                        <TextBlock DockPanel.Dock="Left" Text="Nouveau bon" Style="{StaticResource Section}" Margin="0" VerticalAlignment="Center"/>
-                        <CheckBox DockPanel.Dock="Right" Content="Bon d'encaissement (sans produit)" IsChecked="{Binding IsPaymentOnly}" Margin="0" VerticalAlignment="Center"/>
-                    </DockPanel>
+                    <TextBlock Text="Nouveau bon" Style="{StaticResource Section}" Margin="0,0,0,12"/>
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -110,16 +107,16 @@
                             <ColumnDefinition Width="12"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Visibility="{Binding IsProductMode, Converter={StaticResource BoolToVis}}">
+                        <StackPanel>
                             <TextBlock Text="Total du bon (DA)" Style="{StaticResource FieldLabel}"/>
                             <TextBlock Text="{Binding Total, StringFormat=N2}" FontSize="20" FontWeight="SemiBold" Margin="0,2,0,0"/>
                         </StackPanel>
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="{Binding PaidLabel}" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Text="Montant encaissé maintenant (DA)" Style="{StaticResource FieldLabel}"/>
                             <TextBox Text="{Binding PaidText, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0"/>
                         </StackPanel>
                     </Grid>
-                    <StackPanel Visibility="{Binding IsProductMode, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
                         <TextBlock Style="{StaticResource FieldLabel}" Margin="0,0,0,2">
                             <Run Text="Reste à payer sur ce bon : "/><Run Text="{Binding Remaining, StringFormat=N2, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=" DA"/>
                         </TextBlock>
@@ -135,14 +132,14 @@
                     </StackPanel>
                 </StackPanel>
 
-                <DockPanel Margin="0,4,0,0" Visibility="{Binding IsProductMode, Converter={StaticResource BoolToVis}}">
+                <DockPanel Margin="0,4,0,0">
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
                         <TextBlock Text="Produits" Style="{StaticResource Section}" Margin="0,0,16,0" VerticalAlignment="Center"/>
                         <Button Content="+ Ajouter une ligne" Command="{Binding AddLineCommand}" Padding="10,4"/>
                         <Button Content="Retirer la ligne" Command="{Binding RemoveLineCommand}" Padding="10,4"/>
                     </StackPanel>
                     <TextBlock DockPanel.Dock="Bottom" TextWrapping="Wrap" Style="{StaticResource FieldLabel}" Margin="0,6,0,0"
-                               Text="Crédit virtuel : montant à envoyer et coefficient de vente (ex. 5 000 × 0,98 = 4 900 DA facturés). Le tarif de ce client pour ce produit est proposé automatiquement et peut être changé (les bons déjà émis ne sont pas modifiés)."/>
+                               Text="Crédit virtuel : montant à envoyer et coefficient de vente (ex. 5 000 × 0,98 = 4 900 DA facturés). Le tarif de ce client pour ce produit est proposé automatiquement et peut être changé (les bons déjà émis ne sont pas modifiés).&#10;Pour un simple encaissement sans vente, laissez les produits vides et indiquez seulement le montant encaissé."/>
                     <DataGrid ItemsSource="{Binding Lines}" SelectedItem="{Binding SelectedLine}" IsReadOnly="False">
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Header="Produit" Width="110">

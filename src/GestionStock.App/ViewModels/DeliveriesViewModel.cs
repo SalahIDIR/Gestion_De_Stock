@@ -122,14 +122,11 @@ public partial class DeliveriesViewModel : ViewModelBase
     [ObservableProperty] private DeliveryLineEditor? _selectedLine;
     [ObservableProperty] private string _paidText = "";
     [ObservableProperty] private decimal _clientDebt;
-    [ObservableProperty] private bool _isPaymentOnly;
 
-    public decimal Total => IsPaymentOnly ? 0m : Lines.Sum(l => l.Total ?? 0m);
+    public decimal Total => Lines.Sum(l => l.Total ?? 0m);
     public decimal Remaining => Total - (ParseDecimal(PaidText) ?? 0m);
     public decimal NewDebt => ClientDebt + Remaining;
-    public bool OverLimit => !IsPaymentOnly && Client is { CreditLimit: > 0 } c && NewDebt > c.CreditLimit;
-    public string PaidLabel => IsPaymentOnly ? "Montant encaissé (DA) *" : "Montant encaissé maintenant (DA)";
-    public bool IsProductMode => !IsPaymentOnly;
+    public bool OverLimit => Client is { CreditLimit: > 0 } c && NewDebt > c.CreditLimit;
 
     public string ClientChoicesHint => _allClients.Count > MaxClientChoices && ClientSearch.Trim().Length == 0
         ? $"{_allClients.Count} clients : tapez un nom ou une ville pour filtrer."
@@ -156,13 +153,6 @@ public partial class DeliveriesViewModel : ViewModelBase
     partial void OnHistoryToChanged(DateTime? value) => ApplyHistoryFilter();
     partial void OnHistoryAmountMinChanged(string value) => ApplyHistoryFilter();
     partial void OnHistoryAmountMaxChanged(string value) => ApplyHistoryFilter();
-
-    partial void OnIsPaymentOnlyChanged(bool value)
-    {
-        OnPropertyChanged(nameof(PaidLabel));
-        OnPropertyChanged(nameof(IsProductMode));
-        RefreshTotals();
-    }
 
     partial void OnClientChanged(Client? value)
     {
@@ -309,7 +299,6 @@ public partial class DeliveriesViewModel : ViewModelBase
         ClientSearch = "";
         DeliveryDate = DateTime.Today;
         PaidText = "";
-        IsPaymentOnly = false;
         Lines.Clear();
         AddLine();
     }
@@ -325,14 +314,23 @@ public partial class DeliveriesViewModel : ViewModelBase
         var paid = string.IsNullOrWhiteSpace(PaidText) ? 0m : ParseDecimal(PaidText);
         if (paid == null) { Info("Le montant encaissé n'est pas un nombre valide."); return; }
 
-        List<DeliveryLineInput> lines = [];
-        if (IsPaymentOnly)
+        // Une ligne à laquelle l'utilisateur n'a rien touché est ignorée ; s'il n'en reste aucune, c'est un bon
+        // d'encaissement (aucun produit vendu, seulement le montant encaissé).
+        var filledLines = Lines.Where(l => l.Product != null
+            || !string.IsNullOrWhiteSpace(l.QuantityText) || !string.IsNullOrWhiteSpace(l.UnitPriceText)).ToList();
+
+        var lines = new List<DeliveryLineInput>();
+        if (filledLines.Count == 0)
         {
-            if (paid is not > 0) { Info("Saisissez le montant encaissé (un nombre positif)."); return; }
+            if (paid is not > 0)
+            {
+                Info("Ajoutez un produit à vendre, ou saisissez un montant pour un simple encaissement.");
+                return;
+            }
         }
         else
         {
-            foreach (var (line, index) in Lines.Select((l, i) => (l, i + 1)))
+            foreach (var (line, index) in filledLines.Select((l, i) => (l, i + 1)))
             {
                 if (line.Product == null) { Info($"Ligne {index} : choisissez un produit."); return; }
                 if (line.Quantity is not > 0) { Info($"Ligne {index} : le montant ou la quantité n'est pas valide."); return; }
@@ -347,10 +345,9 @@ public partial class DeliveriesViewModel : ViewModelBase
         if (!ok || saved == null) return;
 
         var clientName = Client.Name;
-        var wasPaymentOnly = IsPaymentOnly;
         ResetForm();
         await TryAsync(ReloadProductsAndHistoryAsync);
-        Info(wasPaymentOnly
+        Info(lines.Count == 0
             ? $"Bon d'encaissement {saved.Number} enregistré pour « {clientName} » ({saved.AmountPaid:N2} DA)."
             : $"Bon de livraison {saved.Number} enregistré pour « {clientName} » ({saved.Total:N2} DA, reste à payer {saved.Remaining:N2} DA).\nLe stock a été mis à jour.");
     }
