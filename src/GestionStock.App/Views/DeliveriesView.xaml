@@ -5,7 +5,7 @@
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="24"/>
-            <ColumnDefinition Width="520"/>
+            <ColumnDefinition Width="600"/>
         </Grid.ColumnDefinitions>
 
         <!-- Historique -->
@@ -142,7 +142,7 @@
                                Text="Crédit virtuel : montant à envoyer et coefficient de vente (ex. 5 000 × 0,98 = 4 900 DA facturés). Le tarif de ce client pour ce produit est proposé automatiquement et peut être changé (les bons déjà émis ne sont pas modifiés).&#10;Pour un simple encaissement sans vente, laissez les produits vides et indiquez seulement le montant encaissé."/>
                     <DataGrid ItemsSource="{Binding Lines}" SelectedItem="{Binding SelectedLine}" IsReadOnly="False">
                         <DataGrid.Columns>
-                            <DataGridTemplateColumn Header="Produit" Width="110">
+                            <DataGridTemplateColumn Header="Produit" Width="100">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <ComboBox Margin="2" ItemsSource="{Binding DataContext.Products, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -150,8 +150,8 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="Stock" Binding="{Binding StockText, Mode=OneWay}" Width="85" IsReadOnly="True"/>
-                            <DataGridTemplateColumn Header="Montant / qté" Width="*">
+                            <DataGridTextColumn Header="Stock" Binding="{Binding StockText, Mode=OneWay}" Width="70" IsReadOnly="True"/>
+                            <DataGridTemplateColumn Header="Montant / qté" Width="105" MinWidth="90">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <TextBox Margin="2" Text="{Binding QuantityText, UpdateSourceTrigger=PropertyChanged}" ToolTip="{Binding Hint}"/>
@@ -165,7 +165,7 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTemplateColumn Header="Puce" Width="110">
+                            <DataGridTemplateColumn Header="Puce" Width="95">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <ComboBox Margin="2" ItemsSource="{Binding AvailableChips}" DisplayMemberPath="DisplayLabel"
@@ -173,7 +173,7 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="Facturé (DA)" Binding="{Binding Total, StringFormat=N2, Mode=OneWay}" Width="90" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Facturé (DA)" Binding="{Binding Total, StringFormat=N2, Mode=OneWay}" Width="95" IsReadOnly="True"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>
