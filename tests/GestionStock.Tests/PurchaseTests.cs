@@ -99,6 +99,22 @@ public class PurchaseTests
     }
 
     [Fact]
+    public async Task Supplier_rate_is_fixed_on_first_bon_and_only_future_bons_use_the_updated_rate()
+    {
+        using var db = await TestDb.CreateAsync();
+        var (supplier, flexy, _) = await SetupAsync(db);
+        var purchases = new PurchaseService(db);
+
+        var first = await purchases.CreateAsync(new PurchaseInput(supplier.Id, DateTime.Today, [new PurchaseLineInput(flexy.Id, 1_000m, 0.97m)], 0m));
+        Assert.Equal(0.97m, (await purchases.GetLastPricesAsync(supplier.Id))[flexy.Id]);
+
+        await purchases.CreateAsync(new PurchaseInput(supplier.Id, DateTime.Today, [new PurchaseLineInput(flexy.Id, 1_000m, 0.975m)], 0m));
+        Assert.Equal(0.975m, (await purchases.GetLastPricesAsync(supplier.Id))[flexy.Id]);
+
+        Assert.Equal(0.97m, first.Lines.Single().UnitCost); // le bon déjà émis garde son propre tarif
+    }
+
+    [Fact]
     public async Task Supplier_debt_is_the_sum_of_unpaid_amounts_and_blocks_deletion()
     {
         using var db = await TestDb.CreateAsync();

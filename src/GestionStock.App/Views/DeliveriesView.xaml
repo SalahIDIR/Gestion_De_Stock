@@ -5,7 +5,7 @@
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="24"/>
-            <ColumnDefinition Width="500"/>
+            <ColumnDefinition Width="520"/>
         </Grid.ColumnDefinitions>
 
         <!-- Historique -->
@@ -13,31 +13,64 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="200"/>
+                <RowDefinition Height="190"/>
             </Grid.RowDefinitions>
-            <TextBlock Text="Bons de livraison" Style="{StaticResource Title}"/>
+            <DockPanel Grid.Row="0">
+                <TextBlock Text="Bons de livraison" Style="{StaticResource Title}"/>
+                <Button DockPanel.Dock="Right" Content="Imprimer" Command="{Binding PrintCommand}" HorizontalAlignment="Right" Margin="0,0,0,12"/>
+            </DockPanel>
             <StackPanel Grid.Row="1">
                 <TextBlock Text="Rechercher (numéro ou client)" Style="{StaticResource FieldLabel}"/>
                 <TextBox Text="{Binding HistorySearch, UpdateSourceTrigger=PropertyChanged}"/>
             </StackPanel>
-            <DataGrid Grid.Row="2" ItemsSource="{Binding History}" SelectedItem="{Binding SelectedDelivery}">
+            <Grid Grid.Row="2" Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="120"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="120"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Du" Style="{StaticResource FieldLabel}"/>
+                    <DatePicker SelectedDate="{Binding HistoryFrom}" Margin="0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Au" Style="{StaticResource FieldLabel}"/>
+                    <DatePicker SelectedDate="{Binding HistoryTo}" Margin="0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="4">
+                    <TextBlock Text="Montant min." Style="{StaticResource FieldLabel}"/>
+                    <TextBox Text="{Binding HistoryAmountMin, UpdateSourceTrigger=PropertyChanged}" Margin="0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="6">
+                    <TextBlock Text="Montant max." Style="{StaticResource FieldLabel}"/>
+                    <TextBox Text="{Binding HistoryAmountMax, UpdateSourceTrigger=PropertyChanged}" Margin="0"/>
+                </StackPanel>
+            </Grid>
+            <DataGrid Grid.Row="3" ItemsSource="{Binding History}" SelectedItem="{Binding SelectedDelivery}">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="N°" Binding="{Binding Number}" Width="95"/>
                     <DataGridTextColumn Header="Date" Binding="{Binding Date, StringFormat=dd/MM/yyyy}" Width="90"/>
+                    <DataGridTextColumn Header="Type" Binding="{Binding TypeLabel}" Width="95"/>
                     <DataGridTextColumn Header="Client" Binding="{Binding ClientName}" Width="*"/>
                     <DataGridTextColumn Header="Total (DA)" Binding="{Binding Total, StringFormat=N2}" Width="105"/>
                     <DataGridTextColumn Header="Reste (DA)" Binding="{Binding Remaining, StringFormat=N2}" Width="105"/>
                 </DataGrid.Columns>
             </DataGrid>
-            <TextBlock Grid.Row="3" Text="Détail du bon sélectionné" Style="{StaticResource Section}" Margin="0,16,0,6"/>
-            <DataGrid Grid.Row="4" ItemsSource="{Binding SelectedDetails}">
+            <TextBlock Grid.Row="4" Text="Détail du bon sélectionné" Style="{StaticResource Section}" Margin="0,16,0,6"/>
+            <DataGrid Grid.Row="5" ItemsSource="{Binding SelectedDetails}">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Produit" Binding="{Binding ProductName}" Width="*"/>
-                    <DataGridTextColumn Header="Montant / qté" Binding="{Binding Quantity, StringFormat=N2}" Width="120"/>
-                    <DataGridTextColumn Header="Coef. / prix" Binding="{Binding UnitPrice, StringFormat=0.####}" Width="85"/>
-                    <DataGridTextColumn Header="Facturé (DA)" Binding="{Binding LineTotal, StringFormat=N2}" Width="115"/>
+                    <DataGridTextColumn Header="Montant / qté" Binding="{Binding Quantity, StringFormat=N2}" Width="110"/>
+                    <DataGridTextColumn Header="Coef. / prix" Binding="{Binding UnitPrice, StringFormat=0.####}" Width="80"/>
+                    <DataGridTextColumn Header="Facturé (DA)" Binding="{Binding LineTotal, StringFormat=N2}" Width="105"/>
+                    <DataGridTextColumn Header="Puce" Binding="{Binding RecipientPhone}" Width="110"/>
                 </DataGrid.Columns>
             </DataGrid>
         </Grid>
@@ -46,7 +79,10 @@
         <Border Grid.Column="2" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="18">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top">
-                    <TextBlock Text="Nouveau bon de livraison" Style="{StaticResource Section}" Margin="0,0,0,12"/>
+                    <DockPanel Margin="0,0,0,12">
+                        <TextBlock DockPanel.Dock="Left" Text="Nouveau bon" Style="{StaticResource Section}" Margin="0" VerticalAlignment="Center"/>
+                        <CheckBox DockPanel.Dock="Right" Content="Bon d'encaissement (sans produit)" IsChecked="{Binding IsPaymentOnly}" Margin="0" VerticalAlignment="Center"/>
+                    </DockPanel>
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -74,40 +110,42 @@
                             <ColumnDefinition Width="12"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel>
+                        <StackPanel Visibility="{Binding IsProductMode, Converter={StaticResource BoolToVis}}">
                             <TextBlock Text="Total du bon (DA)" Style="{StaticResource FieldLabel}"/>
                             <TextBlock Text="{Binding Total, StringFormat=N2}" FontSize="20" FontWeight="SemiBold" Margin="0,2,0,0"/>
                         </StackPanel>
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="Montant encaissé maintenant (DA)" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Text="{Binding PaidLabel}" Style="{StaticResource FieldLabel}"/>
                             <TextBox Text="{Binding PaidText, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0"/>
                         </StackPanel>
                     </Grid>
-                    <TextBlock Style="{StaticResource FieldLabel}" Margin="0,0,0,2">
-                        <Run Text="Reste à payer sur ce bon : "/><Run Text="{Binding Remaining, StringFormat=N2, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=" DA"/>
-                    </TextBlock>
-                    <TextBlock Style="{StaticResource FieldLabel}" Margin="0,0,0,4">
-                        <Run Text="Nouvelle dette du client : "/><Run Text="{Binding NewDebt, StringFormat=N2, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=" DA"/>
-                    </TextBlock>
-                    <TextBlock Text="Plafond de crédit dépassé : ce bon sera refusé." Style="{StaticResource ErrorText}" Margin="0,0,0,8"
-                               Visibility="{Binding OverLimit, Converter={StaticResource BoolToVis}}"/>
+                    <StackPanel Visibility="{Binding IsProductMode, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Style="{StaticResource FieldLabel}" Margin="0,0,0,2">
+                            <Run Text="Reste à payer sur ce bon : "/><Run Text="{Binding Remaining, StringFormat=N2, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=" DA"/>
+                        </TextBlock>
+                        <TextBlock Style="{StaticResource FieldLabel}" Margin="0,0,0,4">
+                            <Run Text="Nouvelle dette du client : "/><Run Text="{Binding NewDebt, StringFormat=N2, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=" DA"/>
+                        </TextBlock>
+                        <TextBlock Text="Plafond de crédit dépassé : ce bon sera refusé." Style="{StaticResource ErrorText}" Margin="0,0,0,8"
+                                   Visibility="{Binding OverLimit, Converter={StaticResource BoolToVis}}"/>
+                    </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                         <Button Content="Enregistrer le bon" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButton}"/>
                         <Button Content="Vider le formulaire" Command="{Binding ResetCommand}"/>
                     </StackPanel>
                 </StackPanel>
 
-                <DockPanel Margin="0,4,0,0">
+                <DockPanel Margin="0,4,0,0" Visibility="{Binding IsProductMode, Converter={StaticResource BoolToVis}}">
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
                         <TextBlock Text="Produits" Style="{StaticResource Section}" Margin="0,0,16,0" VerticalAlignment="Center"/>
                         <Button Content="+ Ajouter une ligne" Command="{Binding AddLineCommand}" Padding="10,4"/>
                         <Button Content="Retirer la ligne" Command="{Binding RemoveLineCommand}" Padding="10,4"/>
                     </StackPanel>
                     <TextBlock DockPanel.Dock="Bottom" TextWrapping="Wrap" Style="{StaticResource FieldLabel}" Margin="0,6,0,0"
-                               Text="Crédit virtuel : montant à envoyer et coefficient de vente (ex. 5 000 × 0,98 = 4 900 DA facturés). Le dernier coefficient de ce client est proposé automatiquement."/>
+                               Text="Crédit virtuel : montant à envoyer et coefficient de vente (ex. 5 000 × 0,98 = 4 900 DA facturés). Le tarif de ce client pour ce produit est proposé automatiquement et peut être changé (les bons déjà émis ne sont pas modifiés)."/>
                     <DataGrid ItemsSource="{Binding Lines}" SelectedItem="{Binding SelectedLine}" IsReadOnly="False">
                         <DataGrid.Columns>
-                            <DataGridTemplateColumn Header="Produit" Width="120">
+                            <DataGridTemplateColumn Header="Produit" Width="110">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <ComboBox Margin="2" ItemsSource="{Binding DataContext.Products, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -115,22 +153,30 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="Stock" Binding="{Binding StockText, Mode=OneWay}" Width="95" IsReadOnly="True"/>
-                            <DataGridTemplateColumn Header="Montant/qté" Width="*">
+                            <DataGridTextColumn Header="Stock" Binding="{Binding StockText, Mode=OneWay}" Width="85" IsReadOnly="True"/>
+                            <DataGridTemplateColumn Header="Montant / qté" Width="*">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <TextBox Margin="2" Text="{Binding QuantityText, UpdateSourceTrigger=PropertyChanged}" ToolTip="{Binding Hint}"/>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTemplateColumn Header="Coef. / prix" Width="75">
+                            <DataGridTemplateColumn Header="Coef. / prix" Width="70">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <TextBox Margin="2" Text="{Binding UnitPriceText, UpdateSourceTrigger=PropertyChanged}" ToolTip="{Binding Hint}"/>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="Facturé (DA)" Binding="{Binding Total, StringFormat=N2, Mode=OneWay}" Width="95" IsReadOnly="True"/>
+                            <DataGridTemplateColumn Header="Puce" Width="110">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <ComboBox Margin="2" ItemsSource="{Binding AvailableChips}" DisplayMemberPath="DisplayLabel"
+                                                  SelectedItem="{Binding SelectedChip, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Facturé (DA)" Binding="{Binding Total, StringFormat=N2, Mode=OneWay}" Width="90" IsReadOnly="True"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>

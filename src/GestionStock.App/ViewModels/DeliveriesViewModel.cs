@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GestionStock.App.Services;
 using GestionStock.Core.Domain;
 using GestionStock.Core.Services;
 
@@ -12,6 +13,9 @@ public partial class DeliveryLineEditor : ObservableObject
     [ObservableProperty] private Product? _product;
     [ObservableProperty] private string _quantityText = "";
     [ObservableProperty] private string _unitPriceText = "";
+    [ObservableProperty] private ClientChip? _selectedChip;
+
+    public ObservableCollection<ClientChip> AvailableChips { get; } = new();
 
     public decimal? Quantity => ViewModelBase.ParseDecimal(QuantityText);
     public decimal? UnitPrice => ViewModelBase.ParseDecimal(UnitPriceText);
@@ -45,6 +49,8 @@ public record DeliveryRow(DeliveryNote Note)
     public string Number => Note.Number;
     public DateTime Date => Note.Date;
     public string ClientName => Note.Client?.Name ?? "";
+    public bool IsPaymentOnly => Note.Lines.Count == 0;
+    public string TypeLabel => IsPaymentOnly ? "Encaissement" : "Vente";
     public decimal Total => Note.Total;
     public decimal Remaining => Note.Remaining;
 }
@@ -55,6 +61,7 @@ public record DeliveryLineRow(DeliveryLine Line)
     public decimal Quantity => Line.Quantity;
     public decimal UnitPrice => Line.UnitPrice;
     public decimal LineTotal => Line.LineTotal;
+    public string? RecipientPhone => Line.RecipientPhone;
 }
 
 public partial class DeliveriesViewModel : ViewModelBase
@@ -82,7 +89,11 @@ public partial class DeliveriesViewModel : ViewModelBase
                 {
                     l.PropertyChanged += (_, args) =>
                     {
-                        if (args.PropertyName == nameof(DeliveryLineEditor.Product)) PrefillPrice(l);
+                        if (args.PropertyName == nameof(DeliveryLineEditor.Product))
+                        {
+                            PrefillPrice(l);
+                            PopulateChips(l);
+                        }
                         RefreshTotals();
                     };
                 }
@@ -99,6 +110,10 @@ public partial class DeliveriesViewModel : ViewModelBase
     public ObservableCollection<DeliveryLineEditor> Lines { get; } = new();
 
     [ObservableProperty] private string _historySearch = "";
+    [ObservableProperty] private DateTime? _historyFrom;
+    [ObservableProperty] private DateTime? _historyTo;
+    [ObservableProperty] private string _historyAmountMin = "";
+    [ObservableProperty] private string _historyAmountMax = "";
     [ObservableProperty] private DeliveryRow? _selectedDelivery;
 
     [ObservableProperty] private string _clientSearch = "";
@@ -107,11 +122,14 @@ public partial class DeliveriesViewModel : ViewModelBase
     [ObservableProperty] private DeliveryLineEditor? _selectedLine;
     [ObservableProperty] private string _paidText = "";
     [ObservableProperty] private decimal _clientDebt;
+    [ObservableProperty] private bool _isPaymentOnly;
 
-    public decimal Total => Lines.Sum(l => l.Total ?? 0m);
+    public decimal Total => IsPaymentOnly ? 0m : Lines.Sum(l => l.Total ?? 0m);
     public decimal Remaining => Total - (ParseDecimal(PaidText) ?? 0m);
     public decimal NewDebt => ClientDebt + Remaining;
-    public bool OverLimit => Client is { CreditLimit: > 0 } c && NewDebt > c.CreditLimit;
+    public bool OverLimit => !IsPaymentOnly && Client is { CreditLimit: > 0 } c && NewDebt > c.CreditLimit;
+    public string PaidLabel => IsPaymentOnly ? "Montant encaissé (DA) *" : "Montant encaissé maintenant (DA)";
+    public bool IsProductMode => !IsPaymentOnly;
 
     public string ClientChoicesHint => _allClients.Count > MaxClientChoices && ClientSearch.Trim().Length == 0
         ? $"{_allClients.Count} clients : tapez un nom ou une ville pour filtrer."
@@ -124,8 +142,9 @@ public partial class DeliveriesViewModel : ViewModelBase
             if (Client == null) return "";
             var limit = Client.CreditLimit > 0 ? $"{Client.CreditLimit:N2} DA" : "aucun";
             var chips = string.Join(" · ", Client.Chips
-                .OrderBy(c => c.OperatorId)
-                .Select(c => $"{c.Operator?.Name ?? "Op." + c.OperatorId} {c.PhoneNumber}"));
+                .OrderBy(c => c.OperatorId).ThenBy(c => c.Slot)
+                .GroupBy(c => c.OperatorId)
+                .Select(g => $"{g.First().Operator?.Name ?? "Op." + g.Key} " + string.Join(" / ", g.Select(c => c.PhoneNumber))));
             return $"Dette actuelle : {ClientDebt:N2} DA · Plafond : {limit}" + (chips.Length > 0 ? $"\nPuces : {chips}" : "\nAucune puce enregistrée");
         }
     }
@@ -133,11 +152,23 @@ public partial class DeliveriesViewModel : ViewModelBase
     partial void OnPaidTextChanged(string value) => RefreshTotals();
     partial void OnClientSearchChanged(string value) => RebuildClientChoices();
     partial void OnHistorySearchChanged(string value) => ApplyHistoryFilter();
+    partial void OnHistoryFromChanged(DateTime? value) => ApplyHistoryFilter();
+    partial void OnHistoryToChanged(DateTime? value) => ApplyHistoryFilter();
+    partial void OnHistoryAmountMinChanged(string value) => ApplyHistoryFilter();
+    partial void OnHistoryAmountMaxChanged(string value) => ApplyHistoryFilter();
+
+    partial void OnIsPaymentOnlyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(PaidLabel));
+        OnPropertyChanged(nameof(IsProductMode));
+        RefreshTotals();
+    }
 
     partial void OnClientChanged(Client? value)
     {
         if (_rebuildingChoices) return; // la ComboBox vide sa sélection le temps de la reconstruction
         OnPropertyChanged(nameof(ClientInfo));
+        foreach (var line in Lines) PopulateChips(line);
         _ = LoadClientContextAsync(value);
     }
 
@@ -180,12 +211,22 @@ public partial class DeliveriesViewModel : ViewModelBase
         });
     }
 
-    /// <summary>Propose le dernier coefficient ou prix appliqué à ce client pour ce produit, si la case est vide.</summary>
+    /// <summary>Propose le tarif courant de ce client pour ce produit, si la case est vide.</summary>
     private void PrefillPrice(DeliveryLineEditor line)
     {
         if (line.Product == null || !string.IsNullOrWhiteSpace(line.UnitPriceText)) return;
         if (_lastPrices.TryGetValue(line.Product.Id, out var price))
             line.UnitPriceText = price.ToString("0.####");
+    }
+
+    /// <summary>Remplit le choix de puce destinataire selon l'opérateur du produit et les puces du client sélectionné.</summary>
+    private void PopulateChips(DeliveryLineEditor line)
+    {
+        line.AvailableChips.Clear();
+        if (Client != null && line.Product?.OperatorId is int operatorId)
+            foreach (var chip in Client.Chips.Where(c => c.OperatorId == operatorId).OrderBy(c => c.Slot))
+                line.AvailableChips.Add(chip);
+        line.SelectedChip = line.AvailableChips.FirstOrDefault();
     }
 
     private async Task InitializeAsync()
@@ -209,11 +250,19 @@ public partial class DeliveriesViewModel : ViewModelBase
     private void ApplyHistoryFilter()
     {
         var term = HistorySearch.Trim();
+        var min = ParseDecimal(HistoryAmountMin);
+        var max = ParseDecimal(HistoryAmountMax);
+
+        var rows = _allNotes.Where(n => term.Length == 0
+                || n.Number.Contains(term, StringComparison.CurrentCultureIgnoreCase)
+                || (n.Client?.Name.Contains(term, StringComparison.CurrentCultureIgnoreCase) ?? false))
+            .Where(n => HistoryFrom == null || n.Date.Date >= HistoryFrom.Value.Date)
+            .Where(n => HistoryTo == null || n.Date.Date <= HistoryTo.Value.Date)
+            .Where(n => min == null || n.Total >= min)
+            .Where(n => max == null || n.Total <= max);
+
         History.Clear();
-        foreach (var n in _allNotes.Where(n => term.Length == 0
-                     || n.Number.Contains(term, StringComparison.CurrentCultureIgnoreCase)
-                     || (n.Client?.Name.Contains(term, StringComparison.CurrentCultureIgnoreCase) ?? false)))
-            History.Add(new DeliveryRow(n));
+        foreach (var n in rows) History.Add(new DeliveryRow(n));
     }
 
     private void RebuildClientChoices()
@@ -260,6 +309,7 @@ public partial class DeliveriesViewModel : ViewModelBase
         ClientSearch = "";
         DeliveryDate = DateTime.Today;
         PaidText = "";
+        IsPaymentOnly = false;
         Lines.Clear();
         AddLine();
     }
@@ -272,17 +322,24 @@ public partial class DeliveriesViewModel : ViewModelBase
     {
         if (Client == null) { Info("Sélectionnez un client."); return; }
 
-        var lines = new List<DeliveryLineInput>();
-        foreach (var (line, index) in Lines.Select((l, i) => (l, i + 1)))
-        {
-            if (line.Product == null) { Info($"Ligne {index} : choisissez un produit."); return; }
-            if (line.Quantity is not > 0) { Info($"Ligne {index} : le montant ou la quantité n'est pas valide."); return; }
-            if (line.UnitPrice is not > 0) { Info($"Ligne {index} : le coefficient ou prix n'est pas valide."); return; }
-            lines.Add(new DeliveryLineInput(line.Product.Id, line.Quantity.Value, line.UnitPrice.Value));
-        }
-
         var paid = string.IsNullOrWhiteSpace(PaidText) ? 0m : ParseDecimal(PaidText);
         if (paid == null) { Info("Le montant encaissé n'est pas un nombre valide."); return; }
+
+        List<DeliveryLineInput> lines = [];
+        if (IsPaymentOnly)
+        {
+            if (paid is not > 0) { Info("Saisissez le montant encaissé (un nombre positif)."); return; }
+        }
+        else
+        {
+            foreach (var (line, index) in Lines.Select((l, i) => (l, i + 1)))
+            {
+                if (line.Product == null) { Info($"Ligne {index} : choisissez un produit."); return; }
+                if (line.Quantity is not > 0) { Info($"Ligne {index} : le montant ou la quantité n'est pas valide."); return; }
+                if (line.UnitPrice is not > 0) { Info($"Ligne {index} : le coefficient ou prix n'est pas valide."); return; }
+                lines.Add(new DeliveryLineInput(line.Product.Id, line.Quantity.Value, line.UnitPrice.Value, line.SelectedChip?.PhoneNumber));
+            }
+        }
 
         DeliveryNote? saved = null;
         var ok = await TryAsync(async () =>
@@ -290,8 +347,20 @@ public partial class DeliveriesViewModel : ViewModelBase
         if (!ok || saved == null) return;
 
         var clientName = Client.Name;
+        var wasPaymentOnly = IsPaymentOnly;
         ResetForm();
         await TryAsync(ReloadProductsAndHistoryAsync);
-        Info($"Bon de livraison {saved.Number} enregistré pour « {clientName} » ({saved.Total:N2} DA, reste à payer {saved.Remaining:N2} DA).\nLe stock a été mis à jour.");
+        Info(wasPaymentOnly
+            ? $"Bon d'encaissement {saved.Number} enregistré pour « {clientName} » ({saved.AmountPaid:N2} DA)."
+            : $"Bon de livraison {saved.Number} enregistré pour « {clientName} » ({saved.Total:N2} DA, reste à payer {saved.Remaining:N2} DA).\nLe stock a été mis à jour.");
+    }
+
+    [RelayCommand]
+    private void Print()
+    {
+        PrintHelper.PrintTable("Bons de livraison et encaissements",
+            ["N°", "Date", "Type", "Client", "Total (DA)", "Reste (DA)"],
+            History.Select(r => new[] { r.Number, r.Date.ToString("dd/MM/yyyy"), r.TypeLabel, r.ClientName,
+                r.Total.ToString("N2"), r.Remaining.ToString("N2") }).ToList());
     }
 }

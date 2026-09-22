@@ -102,6 +102,69 @@ public class MasterDataTests
     }
 
     [Fact]
+    public async Task Client_can_have_a_second_chip_per_operator_but_not_a_third()
+    {
+        using var db = await TestDb.CreateAsync();
+        var clients = new ClientService(db);
+        var djezzy = (await new SettingsService(db).GetOperatorsAsync()).First();
+
+        var saved = await clients.SaveAsync(new Client
+        {
+            Name = "Boutique",
+            Chips =
+            {
+                new ClientChip { OperatorId = djezzy.Id, Slot = 1, PhoneNumber = "0770000001" },
+                new ClientChip { OperatorId = djezzy.Id, Slot = 2, PhoneNumber = "0770000002" },
+            },
+        });
+
+        var chips = (await clients.ListAsync()).Single(c => c.Id == saved.Id).Chips;
+        Assert.Equal(2, chips.Count);
+        Assert.Contains(chips, c => c.Slot == 1 && c.PhoneNumber == "0770000001");
+        Assert.Contains(chips, c => c.Slot == 2 && c.PhoneNumber == "0770000002");
+
+        // Deux fois le même slot pour le même opérateur est refusé.
+        await Assert.ThrowsAsync<BusinessException>(() => clients.SaveAsync(new Client
+        {
+            Name = "X",
+            Chips =
+            {
+                new ClientChip { OperatorId = djezzy.Id, Slot = 1, PhoneNumber = "0770000003" },
+                new ClientChip { OperatorId = djezzy.Id, Slot = 1, PhoneNumber = "0770000004" },
+            },
+        }));
+
+        // Un slot 2 sans slot 1 est refusé (il faut d'abord le premier numéro).
+        await Assert.ThrowsAsync<BusinessException>(() => clients.SaveAsync(new Client
+        {
+            Name = "Y",
+            Chips = { new ClientChip { OperatorId = djezzy.Id, Slot = 2, PhoneNumber = "0770000005" } },
+        }));
+
+        // Un slot invalide est refusé.
+        await Assert.ThrowsAsync<BusinessException>(() => clients.SaveAsync(new Client
+        {
+            Name = "Z",
+            Chips = { new ClientChip { OperatorId = djezzy.Id, Slot = 3, PhoneNumber = "0770000006" } },
+        }));
+    }
+
+    [Fact]
+    public async Task New_products_get_a_default_color_and_a_valid_custom_color_is_kept()
+    {
+        using var db = await TestDb.CreateAsync();
+        var products = new ProductService(db);
+
+        var p1 = await products.SaveAsync(new Product { Name = "Nouveau 1", Kind = ProductKind.Physical });
+        Assert.False(string.IsNullOrWhiteSpace(p1.ColorHex));
+
+        var p2 = await products.SaveAsync(new Product { Name = "Nouveau 2", Kind = ProductKind.Physical, ColorHex = "#123ABC" });
+        Assert.Equal("#123ABC", p2.ColorHex);
+
+        await Assert.ThrowsAsync<BusinessException>(() => products.SaveAsync(new Product { Name = "Nouveau 3", Kind = ProductKind.Physical, ColorHex = "pasunecouleur" }));
+    }
+
+    [Fact]
     public async Task Deleting_a_client_removes_its_chips()
     {
         using var db = await TestDb.CreateAsync();

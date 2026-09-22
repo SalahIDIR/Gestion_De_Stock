@@ -18,7 +18,7 @@ public class ClientService
             .OrderBy(c => c.Name).ToListAsync();
     }
 
-    /// <summary>Enregistre le client et remplace l'ensemble de ses puces (une par opérateur au plus).</summary>
+    /// <summary>Enregistre le client et remplace l'ensemble de ses puces (au plus 2 par opérateur : Slot 1 et 2).</summary>
     public async Task<Client> SaveAsync(Client input)
     {
         var name = input.Name.Trim();
@@ -27,10 +27,14 @@ public class ClientService
 
         var chips = input.Chips
             .Where(c => !string.IsNullOrWhiteSpace(c.PhoneNumber))
-            .Select(c => (c.OperatorId, Phone: c.PhoneNumber.Trim()))
+            .Select(c => (c.OperatorId, Phone: c.PhoneNumber.Trim(), c.Slot))
             .ToList();
-        if (chips.GroupBy(c => c.OperatorId).Any(g => g.Count() > 1))
-            throw new BusinessException("Un client ne peut avoir qu'une puce par opérateur.");
+        if (chips.Any(c => c.Slot is not (1 or 2)))
+            throw new BusinessException("Le numéro de puce doit être le premier (1) ou le deuxième (2).");
+        if (chips.GroupBy(c => (c.OperatorId, c.Slot)).Any(g => g.Count() > 1))
+            throw new BusinessException("Un client ne peut avoir qu'une puce par opérateur et par numéro.");
+        if (chips.Any(c => c.Slot == 2) && chips.GroupBy(c => c.OperatorId).Any(g => g.Count() == 1 && g.First().Slot == 2))
+            throw new BusinessException("Saisissez d'abord le premier numéro avant d'ajouter un deuxième numéro.");
         if (chips.Any(c => !c.Phone.All(char.IsDigit)))
             throw new BusinessException("Les numéros de puce ne doivent contenir que des chiffres.");
 
@@ -54,8 +58,8 @@ public class ClientService
         entity.CreditLimit = input.CreditLimit;
 
         entity.Chips.Clear();
-        foreach (var (operatorId, phone) in chips)
-            entity.Chips.Add(new ClientChip { OperatorId = operatorId, PhoneNumber = phone });
+        foreach (var (operatorId, phone, slot) in chips)
+            entity.Chips.Add(new ClientChip { OperatorId = operatorId, PhoneNumber = phone, Slot = slot });
 
         await db.SaveChangesAsync();
         return entity;

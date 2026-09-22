@@ -200,4 +200,75 @@ public class DeliveryTests
         await clients.DeleteAsync(unused.Id);
         Assert.DoesNotContain(await clients.ListAsync(), x => x.Id == unused.Id);
     }
+
+    [Fact]
+    public async Task Payment_only_bon_reduces_debt_without_touching_stock_and_is_numbered_ENC()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        await c.Deliveries.CreateAsync(Bon(c, 10_000m, 1m)); // dette 10 000, BL-000001
+
+        var receipt = await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 4_000m));
+
+        Assert.Equal("ENC-000002", receipt.Number);
+        Assert.Equal(0m, receipt.Total);
+        Assert.Equal(-4_000m, receipt.Remaining);
+        Assert.Equal(6_000m, await c.Deliveries.GetClientDebtAsync(c.Client.Id));
+        Assert.Equal(990_000m, await StockOf(c, c.Flexy)); // le stock n'a pas bougé
+    }
+
+    [Fact]
+    public async Task Payment_only_bon_is_rejected_when_zero_or_over_the_debt()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        await c.Deliveries.CreateAsync(Bon(c, 1_000m, 1m)); // dette 1 000
+
+        await Assert.ThrowsAsync<BusinessException>(() => c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 0m)));
+        await Assert.ThrowsAsync<BusinessException>(() => c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 1_000.01m)));
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 1_000m));
+        Assert.Equal(0m, await c.Deliveries.GetClientDebtAsync(c.Client.Id));
+    }
+
+    [Fact]
+    public async Task Recipient_phone_is_stored_and_returned_with_the_line()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        var note = await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today,
+            [new DeliveryLineInput(c.Flexy.Id, 1_000m, 1m, "0770123456")], 0m));
+
+        Assert.Equal("0770123456", note.Lines.Single().RecipientPhone);
+    }
+
+    [Fact]
+    public async Task Client_rate_is_fixed_on_first_bon_and_only_future_bons_use_the_updated_rate()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+
+        var first = await c.Deliveries.CreateAsync(Bon(c, 1_000m, 0.98m));
+        Assert.Equal(0.98m, (await c.Deliveries.GetLastPricesAsync(c.Client.Id))[c.Flexy.Id]);
+
+        await c.Deliveries.CreateAsync(Bon(c, 1_000m, 0.985m));
+        Assert.Equal(0.985m, (await c.Deliveries.GetLastPricesAsync(c.Client.Id))[c.Flexy.Id]);
+
+        // Le bon déjà émis garde son propre tarif, même après que le tarif courant a changé.
+        Assert.Equal(0.98m, first.Lines.Single().UnitPrice);
+    }
+
+    [Fact]
+    public async Task Last_activity_date_is_the_last_payment_or_the_oldest_unpaid_bon()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, new DateTime(2026, 1, 10), [new DeliveryLineInput(c.Flexy.Id, 1_000m, 1m)], 0m));
+        var noPayment = (await c.Deliveries.GetLastActivityDatesAsync())[c.Client.Id];
+        Assert.Equal(new DateTime(2026, 1, 10), noPayment);
+
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, new DateTime(2026, 1, 20), [], 500m));
+        var afterPayment = (await c.Deliveries.GetLastActivityDatesAsync())[c.Client.Id];
+        Assert.Equal(new DateTime(2026, 1, 20), afterPayment);
+    }
 }

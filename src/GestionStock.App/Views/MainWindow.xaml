@@ -22,6 +22,7 @@
                 <Button Content="Produits &amp; stock" Command="{Binding ShowProductsCommand}" Style="{StaticResource NavButton}"/>
                 <Button Content="Fournisseurs" Command="{Binding ShowSuppliersCommand}" Style="{StaticResource NavButton}"/>
                 <Button Content="Clients" Command="{Binding ShowClientsCommand}" Style="{StaticResource NavButton}"/>
+                <Button Content="Rapport" Command="{Binding ShowReportCommand}" Style="{StaticResource NavButton}"/>
                 <Button Content="Paramètres" Command="{Binding ShowSettingsCommand}" Style="{StaticResource NavButton}"/>
             </StackPanel>
         </DockPanel>

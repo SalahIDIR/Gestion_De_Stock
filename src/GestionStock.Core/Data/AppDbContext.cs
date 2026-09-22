@@ -20,6 +20,8 @@ public class AppDbContext : DbContext
     public DbSet<DeliveryNote> DeliveryNotes => Set<DeliveryNote>();
     public DbSet<DeliveryLine> DeliveryLines => Set<DeliveryLine>();
     public DbSet<ClientPayment> ClientPayments => Set<ClientPayment>();
+    public DbSet<ClientProductRate> ClientProductRates => Set<ClientProductRate>();
+    public DbSet<SupplierProductRate> SupplierProductRates => Set<SupplierProductRate>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -31,12 +33,19 @@ public class AppDbContext : DbContext
         b.Entity<Client>()
             .HasMany(c => c.Chips).WithOne(c => c.Client).HasForeignKey(c => c.ClientId)
             .OnDelete(DeleteBehavior.Cascade);
-        b.Entity<ClientChip>().HasIndex(c => new { c.ClientId, c.OperatorId }).IsUnique();
+        // Un client peut avoir 2 puces pour le même opérateur (Slot 1 et 2), jamais deux fois le même slot.
+        b.Entity<ClientChip>().HasIndex(c => new { c.ClientId, c.OperatorId, c.Slot }).IsUnique();
+        b.Entity<ClientChip>().Ignore(c => c.DisplayLabel);
+        // Valeur par défaut au niveau SQL : les puces déjà en base avant cette colonne deviennent des numéros "1" (le seul qu'elles avaient).
+        b.Entity<ClientChip>().Property(c => c.Slot).HasDefaultValue(1);
 
         b.Entity<PurchaseOrder>()
             .HasMany(p => p.Lines).WithOne().HasForeignKey(l => l.PurchaseOrderId)
             .OnDelete(DeleteBehavior.Cascade);
         b.Entity<PurchaseOrder>().Ignore(p => p.Remaining);
+        // Valeur par défaut au niveau SQL : les produits déjà en base avant cette colonne reçoivent la couleur neutre,
+        // corrigée ensuite par DatabaseInitializer pour les 4 produits de départ (Flexy, Storm, Erselli, Cartes Idoom).
+        b.Entity<Product>().Property(p => p.ColorHex).HasDefaultValue("#6B7280");
 
         // Un fournisseur, un client ou un produit déjà utilisé ne peut pas être supprimé : l'historique doit rester cohérent.
         b.Entity<PurchaseOrder>().HasOne(p => p.Supplier).WithMany().HasForeignKey(p => p.SupplierId)
@@ -57,5 +66,12 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.Restrict);
         b.Entity<ClientPayment>().HasOne(p => p.Client).WithMany().HasForeignKey(p => p.ClientId)
             .OnDelete(DeleteBehavior.Restrict);
+        b.Entity<ClientProductRate>().HasIndex(r => new { r.ClientId, r.ProductId }).IsUnique();
+        b.Entity<ClientProductRate>().HasOne<Client>().WithMany().HasForeignKey(r => r.ClientId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<ClientProductRate>().HasOne<Product>().WithMany().HasForeignKey(r => r.ProductId).OnDelete(DeleteBehavior.Restrict);
+
+        b.Entity<SupplierProductRate>().HasIndex(r => new { r.SupplierId, r.ProductId }).IsUnique();
+        b.Entity<SupplierProductRate>().HasOne<Supplier>().WithMany().HasForeignKey(r => r.SupplierId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<SupplierProductRate>().HasOne<Product>().WithMany().HasForeignKey(r => r.ProductId).OnDelete(DeleteBehavior.Restrict);
     }
 }

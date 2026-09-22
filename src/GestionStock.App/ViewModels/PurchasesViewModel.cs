@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GestionStock.App.Services;
 using GestionStock.Core.Domain;
 using GestionStock.Core.Services;
 
@@ -55,6 +56,8 @@ public partial class PurchasesViewModel : ViewModelBase
     private readonly PurchaseService _purchases;
     private readonly SupplierService _suppliers;
     private readonly ProductService _products;
+    private List<PurchaseOrder> _allOrders = new();
+    private Dictionary<int, decimal> _lastPrices = new();
 
     public PurchasesViewModel(PurchaseService purchases, SupplierService suppliers, ProductService products)
     {
@@ -63,7 +66,15 @@ public partial class PurchasesViewModel : ViewModelBase
         _products = products;
         Lines.CollectionChanged += (_, e) =>
         {
-            if (e.NewItems != null) foreach (PurchaseLineEditor l in e.NewItems) l.PropertyChanged += (_, _) => RefreshTotals();
+            if (e.NewItems != null)
+                foreach (PurchaseLineEditor l in e.NewItems)
+                {
+                    l.PropertyChanged += (_, args) =>
+                    {
+                        if (args.PropertyName == nameof(PurchaseLineEditor.Product)) PrefillPrice(l);
+                        RefreshTotals();
+                    };
+                }
             RefreshTotals();
         };
         AddLine();
@@ -76,7 +87,13 @@ public partial class PurchasesViewModel : ViewModelBase
     public ObservableCollection<Product> Products { get; } = new();
     public ObservableCollection<PurchaseLineEditor> Lines { get; } = new();
 
+    [ObservableProperty] private string _historySearch = "";
+    [ObservableProperty] private DateTime? _historyFrom;
+    [ObservableProperty] private DateTime? _historyTo;
+    [ObservableProperty] private string _historyAmountMin = "";
+    [ObservableProperty] private string _historyAmountMax = "";
     [ObservableProperty] private PurchaseRow? _selectedPurchase;
+
     [ObservableProperty] private Supplier? _supplier;
     [ObservableProperty] private DateTime _purchaseDate = DateTime.Today;
     [ObservableProperty] private PurchaseLineEditor? _selectedLine;
@@ -86,6 +103,13 @@ public partial class PurchasesViewModel : ViewModelBase
     public decimal Remaining => Total - (ParseDecimal(PaidText) ?? 0m);
 
     partial void OnPaidTextChanged(string value) => RefreshTotals();
+    partial void OnHistorySearchChanged(string value) => ApplyHistoryFilter();
+    partial void OnHistoryFromChanged(DateTime? value) => ApplyHistoryFilter();
+    partial void OnHistoryToChanged(DateTime? value) => ApplyHistoryFilter();
+    partial void OnHistoryAmountMinChanged(string value) => ApplyHistoryFilter();
+    partial void OnHistoryAmountMaxChanged(string value) => ApplyHistoryFilter();
+
+    partial void OnSupplierChanged(Supplier? value) => _ = LoadSupplierRatesAsync(value);
 
     partial void OnSelectedPurchaseChanged(PurchaseRow? value)
     {
@@ -100,6 +124,26 @@ public partial class PurchasesViewModel : ViewModelBase
         OnPropertyChanged(nameof(Remaining));
     }
 
+    private async Task LoadSupplierRatesAsync(Supplier? supplier)
+    {
+        if (supplier == null) { _lastPrices = new(); return; }
+        await TryAsync(async () =>
+        {
+            var prices = await _purchases.GetLastPricesAsync(supplier.Id);
+            if (Supplier?.Id != supplier.Id) return;
+            _lastPrices = prices;
+            foreach (var line in Lines) PrefillPrice(line);
+        });
+    }
+
+    /// <summary>Propose le tarif courant de ce fournisseur pour ce produit, si la case est vide.</summary>
+    private void PrefillPrice(PurchaseLineEditor line)
+    {
+        if (line.Product == null || !string.IsNullOrWhiteSpace(line.UnitCostText)) return;
+        if (_lastPrices.TryGetValue(line.Product.Id, out var price))
+            line.UnitCostText = price.ToString("0.####");
+    }
+
     private async Task InitializeAsync()
     {
         await TryAsync(async () =>
@@ -112,9 +156,26 @@ public partial class PurchasesViewModel : ViewModelBase
 
     private async Task LoadHistoryAsync()
     {
-        var orders = await _purchases.ListAsync();
+        _allOrders = await _purchases.ListAsync();
+        ApplyHistoryFilter();
+    }
+
+    private void ApplyHistoryFilter()
+    {
+        var term = HistorySearch.Trim();
+        var min = ParseDecimal(HistoryAmountMin);
+        var max = ParseDecimal(HistoryAmountMax);
+
+        var rows = _allOrders.Where(o => term.Length == 0
+                || o.Number.Contains(term, StringComparison.CurrentCultureIgnoreCase)
+                || (o.Supplier?.CompanyName.Contains(term, StringComparison.CurrentCultureIgnoreCase) ?? false))
+            .Where(o => HistoryFrom == null || o.Date.Date >= HistoryFrom.Value.Date)
+            .Where(o => HistoryTo == null || o.Date.Date <= HistoryTo.Value.Date)
+            .Where(o => min == null || o.Total >= min)
+            .Where(o => max == null || o.Total <= max);
+
         History.Clear();
-        foreach (var o in orders) History.Add(new PurchaseRow(o));
+        foreach (var o in rows) History.Add(new PurchaseRow(o));
     }
 
     [RelayCommand]
@@ -169,5 +230,13 @@ public partial class PurchasesViewModel : ViewModelBase
             foreach (var p in await _products.ListAsync()) Products.Add(p);
         });
         Info($"Bon d'achat {saved.Number} enregistré ({saved.Total:N2} DA). Le stock a été mis à jour.");
+    }
+
+    [RelayCommand]
+    private void Print()
+    {
+        PrintHelper.PrintTable("Bons d'achat",
+            ["N°", "Date", "Fournisseur", "Total (DA)", "Reste dû (DA)"],
+            History.Select(r => new[] { r.Number, r.Date.ToString("dd/MM/yyyy"), r.SupplierName, r.Total.ToString("N2"), r.Remaining.ToString("N2") }).ToList());
     }
 }

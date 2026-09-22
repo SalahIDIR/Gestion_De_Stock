@@ -6,6 +6,10 @@ namespace GestionStock.Core.Services;
 
 public class ProductService
 {
+    /// <summary>Palette assignée automatiquement aux nouveaux produits qui n'ont pas de couleur choisie.</summary>
+    private static readonly string[] DefaultPalette =
+        ["#F59E0B", "#DC2626", "#16A34A", "#2563EB", "#7C3AED", "#0EA5E9", "#DB2777", "#65A30D"];
+
     private readonly IDbContextFactory<AppDbContext> _factory;
 
     public ProductService(IDbContextFactory<AppDbContext> factory) => _factory = factory;
@@ -24,6 +28,9 @@ public class ProductService
         if (name.Length == 0) throw new BusinessException("Le nom du produit est obligatoire.");
         if (input.Kind == ProductKind.VirtualCredit && input.OperatorId == null)
             throw new BusinessException("Un crédit virtuel doit être rattaché à un opérateur.");
+        var colorHex = string.IsNullOrWhiteSpace(input.ColorHex) ? null : input.ColorHex.Trim();
+        if (colorHex != null && !System.Text.RegularExpressions.Regex.IsMatch(colorHex, "^#[0-9A-Fa-f]{6}$"))
+            throw new BusinessException("La couleur doit être au format #RRGGBB.");
 
         await using var db = await _factory.CreateDbContextAsync();
         if (await db.Products.AnyAsync(p => p.Name == name && p.Id != input.Id))
@@ -32,7 +39,8 @@ public class ProductService
         Product entity;
         if (input.Id == 0)
         {
-            entity = new Product { Kind = input.Kind };
+            var used = await db.Products.CountAsync();
+            entity = new Product { Kind = input.Kind, ColorHex = colorHex ?? DefaultPalette[used % DefaultPalette.Length] };
             db.Products.Add(entity);
         }
         else
@@ -41,6 +49,7 @@ public class ProductService
             if (entity.Kind != input.Kind && await db.StockMovements.AnyAsync(m => m.ProductId == entity.Id))
                 throw new BusinessException("Le type d'un produit ayant des mouvements de stock ne peut plus être changé.");
             entity.Kind = input.Kind;
+            if (colorHex != null) entity.ColorHex = colorHex;
         }
 
         entity.Name = name;

@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace GestionStock.Core.Services;
 
-public record DeliveryLineInput(int ProductId, decimal Quantity, decimal UnitPrice);
+public record DeliveryLineInput(int ProductId, decimal Quantity, decimal UnitPrice, string? RecipientPhone = null);
 
 public record DeliveryInput(int ClientId, DateTime Date, IReadOnlyList<DeliveryLineInput> Lines, decimal AmountPaid);
 
@@ -54,106 +54,156 @@ public class DeliveryService
         return debts;
     }
 
-    /// <summary>Dernier coefficient ou prix de vente appliqué à ce client pour chaque produit, clé = ProductId.</summary>
+    /// <summary>
+    /// Tarif de vente courant de chaque produit pour ce client. Fixé automatiquement lors du premier bon,
+    /// modifiable ensuite ; la modification ne s'applique qu'aux futurs bons, les bons déjà émis gardent leur propre tarif.
+    /// </summary>
     public async Task<Dictionary<int, decimal>> GetLastPricesAsync(int clientId)
     {
         await using var db = await _factory.CreateDbContextAsync();
-        var rows = await db.DeliveryLines.AsNoTracking()
-            .Where(l => db.DeliveryNotes.Any(n => n.Id == l.DeliveryNoteId && n.ClientId == clientId))
-            .Select(l => new { l.ProductId, l.UnitPrice, l.DeliveryNoteId })
-            .ToListAsync();
-        return rows.GroupBy(r => r.ProductId)
-            .ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.DeliveryNoteId).First().UnitPrice);
+        return await db.ClientProductRates.AsNoTracking().Where(r => r.ClientId == clientId)
+            .ToDictionaryAsync(r => r.ProductId, r => r.Rate);
+    }
+
+    /// <summary>
+    /// Date de référence utilisée pour le retard de paiement de chaque client : la date de son dernier encaissement
+    /// (bon payé en tout ou partie, bon d'encaissement, ou paiement enregistré séparément), ou à défaut la date du
+    /// plus ancien bon impayé (le retard se compte alors depuis la naissance de la dette).
+    /// </summary>
+    public async Task<Dictionary<int, DateTime>> GetLastActivityDatesAsync()
+    {
+        await using var db = await _factory.CreateDbContextAsync();
+        var notes = await db.DeliveryNotes.AsNoTracking()
+            .Select(n => new { n.ClientId, n.Date, n.AmountPaid }).ToListAsync();
+        var payments = await db.ClientPayments.AsNoTracking()
+            .Select(p => new { p.ClientId, p.Date }).ToListAsync();
+
+        var result = new Dictionary<int, DateTime>();
+        foreach (var group in notes.GroupBy(n => n.ClientId))
+        {
+            DateTime? lastPayment = group.Where(n => n.AmountPaid > 0).Select(n => (DateTime?)n.Date).Max();
+            var lastSeparatePayment = payments.Where(p => p.ClientId == group.Key).Select(p => (DateTime?)p.Date).Max();
+            if (lastSeparatePayment > lastPayment || lastPayment == null) lastPayment = lastSeparatePayment;
+            result[group.Key] = lastPayment ?? group.Min(n => n.Date);
+        }
+        return result;
     }
 
     /// <summary>
     /// Crée un bon de livraison : vérifie le stock et le plafond du client, retire les quantités du stock
-    /// et écrit le journal, le tout dans une transaction.
+    /// et écrit le journal, le tout dans une transaction. Un bon sans aucune ligne est un « bon d'encaissement » :
+    /// il ne contient que le montant encaissé et réduit la dette du client d'autant, sans toucher au stock.
     /// </summary>
     public async Task<DeliveryNote> CreateAsync(DeliveryInput input)
     {
-        if (input.Lines.Count == 0) throw new BusinessException("Ajoutez au moins un produit au bon de livraison.");
+        var isPaymentOnly = input.Lines.Count == 0;
 
         await using var db = await _factory.CreateDbContextAsync();
         await using var tx = await db.Database.BeginTransactionAsync();
 
         var client = await db.Clients.FindAsync(input.ClientId) ?? throw new BusinessException("Sélectionnez un client.");
-
-        var productIds = input.Lines.Select(l => l.ProductId).Distinct().ToList();
-        var products = await db.Products.Where(p => productIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
-
+        var currentDebt = await DebtOfAsync(db, client.Id);
         var note = new DeliveryNote { Date = input.Date, ClientId = client.Id };
+        var products = new Dictionary<int, Product>();
 
-        foreach (var line in input.Lines)
+        if (isPaymentOnly)
         {
-            if (!products.TryGetValue(line.ProductId, out var product))
-                throw new BusinessException("Un des produits du bon n'existe plus.");
-            if (!product.IsActive)
-                throw new BusinessException($"Le produit « {product.Name} » est désactivé.");
-            if (line.Quantity <= 0)
-                throw new BusinessException($"La quantité de « {product.Name} » doit être positive.");
-            if (line.UnitPrice <= 0)
-                throw new BusinessException($"Le prix ou coefficient de « {product.Name} » doit être positif.");
-            if (product.Kind == ProductKind.Physical && line.Quantity != decimal.Truncate(line.Quantity))
-                throw new BusinessException($"La quantité de « {product.Name} » doit être un nombre entier.");
-            if (product.Kind == ProductKind.VirtualCredit && line.UnitPrice > MaxVirtualCoefficient)
+            if (input.AmountPaid <= 0)
+                throw new BusinessException("Un bon sans produit doit avoir un montant encaissé positif.");
+            if (input.AmountPaid > currentDebt)
                 throw new BusinessException(
-                    $"Le coefficient de « {product.Name} » ({line.UnitPrice}) est trop élevé : saisissez par exemple 0.98.");
+                    $"Le montant encaissé ({input.AmountPaid:N2} DA) dépasse la dette du client ({currentDebt:N2} DA).");
+            note.Total = 0;
+            note.AmountPaid = input.AmountPaid;
+        }
+        else
+        {
+            var productIds = input.Lines.Select(l => l.ProductId).Distinct().ToList();
+            products = await db.Products.Where(p => productIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
 
-            note.Lines.Add(new DeliveryLine
+            foreach (var line in input.Lines)
             {
-                ProductId = product.Id,
-                Quantity = line.Quantity,
-                UnitPrice = line.UnitPrice,
-                LineTotal = ComputeLineTotal(line.Quantity, line.UnitPrice),
-            });
-        }
+                if (!products.TryGetValue(line.ProductId, out var product))
+                    throw new BusinessException("Un des produits du bon n'existe plus.");
+                if (!product.IsActive)
+                    throw new BusinessException($"Le produit « {product.Name} » est désactivé.");
+                if (line.Quantity <= 0)
+                    throw new BusinessException($"La quantité de « {product.Name} » doit être positive.");
+                if (line.UnitPrice <= 0)
+                    throw new BusinessException($"Le prix ou coefficient de « {product.Name} » doit être positif.");
+                if (product.Kind == ProductKind.Physical && line.Quantity != decimal.Truncate(line.Quantity))
+                    throw new BusinessException($"La quantité de « {product.Name} » doit être un nombre entier.");
+                if (product.Kind == ProductKind.VirtualCredit && line.UnitPrice > MaxVirtualCoefficient)
+                    throw new BusinessException(
+                        $"Le coefficient de « {product.Name} » ({line.UnitPrice}) est trop élevé : saisissez par exemple 0.98.");
 
-        // Le stock est vérifié par produit, toutes lignes confondues.
-        foreach (var group in note.Lines.GroupBy(l => l.ProductId))
-        {
-            var product = products[group.Key];
-            var requested = group.Sum(l => l.Quantity);
-            if (requested > product.StockBalance)
-                throw new BusinessException(
-                    $"Stock insuffisant pour « {product.Name} » : disponible {product.StockBalance:N2}, demandé {requested:N2}.");
-        }
+                note.Lines.Add(new DeliveryLine
+                {
+                    ProductId = product.Id,
+                    Quantity = line.Quantity,
+                    UnitPrice = line.UnitPrice,
+                    LineTotal = ComputeLineTotal(line.Quantity, line.UnitPrice),
+                    RecipientPhone = string.IsNullOrWhiteSpace(line.RecipientPhone) ? null : line.RecipientPhone.Trim(),
+                });
+            }
 
-        note.Total = note.Lines.Sum(l => l.LineTotal);
-        if (input.AmountPaid < 0 || input.AmountPaid > note.Total)
-            throw new BusinessException("Le montant encaissé doit être compris entre 0 et le total du bon.");
-        note.AmountPaid = input.AmountPaid;
+            // Le stock est vérifié par produit, toutes lignes confondues.
+            foreach (var group in note.Lines.GroupBy(l => l.ProductId))
+            {
+                var product = products[group.Key];
+                var requested = group.Sum(l => l.Quantity);
+                if (requested > product.StockBalance)
+                    throw new BusinessException(
+                        $"Stock insuffisant pour « {product.Name} » : disponible {product.StockBalance:N2}, demandé {requested:N2}.");
+            }
 
-        if (client.CreditLimit > 0)
-        {
-            var debtAfter = await DebtOfAsync(db, client.Id) + note.Remaining;
-            if (debtAfter > client.CreditLimit)
-                throw new BusinessException(
-                    $"Plafond de crédit dépassé pour « {client.Name} » : la dette serait de {debtAfter:N2} DA " +
-                    $"pour un plafond de {client.CreditLimit:N2} DA. Encaissez un paiement ou réduisez le bon.");
+            note.Total = note.Lines.Sum(l => l.LineTotal);
+            if (input.AmountPaid < 0 || input.AmountPaid > note.Total)
+                throw new BusinessException("Le montant encaissé doit être compris entre 0 et le total du bon.");
+            note.AmountPaid = input.AmountPaid;
+
+            if (client.CreditLimit > 0)
+            {
+                var debtAfter = currentDebt + note.Remaining;
+                if (debtAfter > client.CreditLimit)
+                    throw new BusinessException(
+                        $"Plafond de crédit dépassé pour « {client.Name} » : la dette serait de {debtAfter:N2} DA " +
+                        $"pour un plafond de {client.CreditLimit:N2} DA. Encaissez un paiement ou réduisez le bon.");
+            }
         }
 
         note.Number = $"TMP-{Guid.NewGuid():N}";
         db.DeliveryNotes.Add(note);
         await db.SaveChangesAsync();
 
-        note.Number = $"BL-{note.Id:D6}";
-        foreach (var line in note.Lines)
+        note.Number = (isPaymentOnly ? "ENC-" : "BL-") + $"{note.Id:D6}";
+        if (!isPaymentOnly)
         {
-            products[line.ProductId].StockBalance -= line.Quantity;
-            db.StockMovements.Add(new StockMovement
+            foreach (var line in note.Lines)
             {
-                Date = input.Date,
-                ProductId = line.ProductId,
-                Quantity = -line.Quantity,
-                Kind = StockMovementKind.Sale,
-                DeliveryNoteId = note.Id,
-                Note = note.Number,
-            });
+                products[line.ProductId].StockBalance -= line.Quantity;
+                db.StockMovements.Add(new StockMovement
+                {
+                    Date = input.Date,
+                    ProductId = line.ProductId,
+                    Quantity = -line.Quantity,
+                    Kind = StockMovementKind.Sale,
+                    DeliveryNoteId = note.Id,
+                    Note = note.Number,
+                });
+                await UpsertRateAsync(db, client.Id, line.ProductId, line.UnitPrice);
+            }
         }
         await db.SaveChangesAsync();
         await tx.CommitAsync();
         return note;
+    }
+
+    private static async Task UpsertRateAsync(AppDbContext db, int clientId, int productId, decimal rate)
+    {
+        var existing = await db.ClientProductRates.FirstOrDefaultAsync(r => r.ClientId == clientId && r.ProductId == productId);
+        if (existing == null) db.ClientProductRates.Add(new ClientProductRate { ClientId = clientId, ProductId = productId, Rate = rate });
+        else existing.Rate = rate;
     }
 
     public async Task<ClientPayment> AddPaymentAsync(int clientId, DateTime date, decimal amount, string? note)

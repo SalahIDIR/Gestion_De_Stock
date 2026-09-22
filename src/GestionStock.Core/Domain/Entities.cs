@@ -72,7 +72,10 @@ public class Client
     public override string ToString() => Name;
 }
 
-/// <summary>Numéro de puce du client pour un opérateur donné (destinataire du crédit).</summary>
+/// <summary>
+/// Numéro de puce du client pour un opérateur donné (destinataire du crédit).
+/// Un client peut avoir jusqu'à 2 puces pour le même opérateur (Slot 1 et 2).
+/// </summary>
 public class ClientChip
 {
     public int Id { get; set; }
@@ -81,6 +84,13 @@ public class ClientChip
     public int OperatorId { get; set; }
     public Operator? Operator { get; set; }
     public string PhoneNumber { get; set; } = "";
+    /// <summary>1 = numéro principal, 2 = deuxième numéro (facultatif) pour le même opérateur.</summary>
+    public int Slot { get; set; } = 1;
+
+    /// <summary>Libellé d'affichage dans les listes déroulantes. Propriété calculée, non mappée par EF.</summary>
+    public string DisplayLabel => Slot == 1 ? PhoneNumber : $"{PhoneNumber} (2ᵉ numéro)";
+
+    public override string ToString() => DisplayLabel;
 }
 
 public class Product
@@ -94,6 +104,8 @@ public class Product
     /// <summary>Solde courant : montant en DA (crédit virtuel) ou quantité (produit physique). Toujours égal à la somme des mouvements.</summary>
     public decimal StockBalance { get; set; }
     public bool IsActive { get; set; } = true;
+    /// <summary>Couleur d'affichage dans le rapport des opérations (#RRGGBB).</summary>
+    public string ColorHex { get; set; } = "#6B7280";
 
     public override string ToString() => Name;
 }
@@ -171,9 +183,11 @@ public class DeliveryLine
     public decimal UnitPrice { get; set; }
     /// <summary>Montant facturé au client = Quantity × UnitPrice, arrondi à 2 décimales.</summary>
     public decimal LineTotal { get; set; }
+    /// <summary>Numéro de puce ayant reçu le crédit, tel que choisi au moment de la vente (peut différer du numéro actuel du client).</summary>
+    public string? RecipientPhone { get; set; }
 }
 
-/// <summary>Paiement encaissé sur la dette d'un client (hors paiement fait à la livraison).</summary>
+/// <summary>Paiement encaissé sur la dette d'un client (hors paiement fait à la livraison). Conservé pour l'historique ; les nouveaux encaissements sont désormais des bons sans produit (DeliveryNote).</summary>
 public class ClientPayment
 {
     public int Id { get; set; }
@@ -182,4 +196,26 @@ public class ClientPayment
     public DateTime Date { get; set; }
     public decimal Amount { get; set; }
     public string? Note { get; set; }
+}
+
+/// <summary>
+/// Tarif de vente courant d'un produit pour un client (coefficient ou prix unitaire).
+/// Fixé automatiquement lors du premier bon, modifiable ensuite ; la modification ne s'applique qu'aux futurs bons,
+/// les lignes déjà enregistrées gardent leur propre valeur.
+/// </summary>
+public class ClientProductRate
+{
+    public int Id { get; set; }
+    public int ClientId { get; set; }
+    public int ProductId { get; set; }
+    public decimal Rate { get; set; }
+}
+
+/// <summary>Même principe que <see cref="ClientProductRate"/>, côté achat (tarif fournisseur par produit).</summary>
+public class SupplierProductRate
+{
+    public int Id { get; set; }
+    public int SupplierId { get; set; }
+    public int ProductId { get; set; }
+    public decimal Rate { get; set; }
 }

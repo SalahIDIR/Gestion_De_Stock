@@ -12,12 +12,48 @@
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="200"/>
+                <RowDefinition Height="190"/>
             </Grid.RowDefinitions>
-            <TextBlock Text="Bons d'achat" Style="{StaticResource Title}"/>
-            <DataGrid Grid.Row="1" ItemsSource="{Binding History}" SelectedItem="{Binding SelectedPurchase}">
+            <DockPanel Grid.Row="0">
+                <TextBlock Text="Bons d'achat" Style="{StaticResource Title}"/>
+                <Button DockPanel.Dock="Right" Content="Imprimer" Command="{Binding PrintCommand}" HorizontalAlignment="Right" Margin="0,0,0,12"/>
+            </DockPanel>
+            <StackPanel Grid.Row="1">
+                <TextBlock Text="Rechercher (numéro ou fournisseur)" Style="{StaticResource FieldLabel}"/>
+                <TextBox Text="{Binding HistorySearch, UpdateSourceTrigger=PropertyChanged}"/>
+            </StackPanel>
+            <Grid Grid.Row="2" Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="120"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="120"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Du" Style="{StaticResource FieldLabel}"/>
+                    <DatePicker SelectedDate="{Binding HistoryFrom}" Margin="0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Au" Style="{StaticResource FieldLabel}"/>
+                    <DatePicker SelectedDate="{Binding HistoryTo}" Margin="0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="4">
+                    <TextBlock Text="Montant min." Style="{StaticResource FieldLabel}"/>
+                    <TextBox Text="{Binding HistoryAmountMin, UpdateSourceTrigger=PropertyChanged}" Margin="0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="6">
+                    <TextBlock Text="Montant max." Style="{StaticResource FieldLabel}"/>
+                    <TextBox Text="{Binding HistoryAmountMax, UpdateSourceTrigger=PropertyChanged}" Margin="0"/>
+                </StackPanel>
+            </Grid>
+            <DataGrid Grid.Row="3" ItemsSource="{Binding History}" SelectedItem="{Binding SelectedPurchase}">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="N°" Binding="{Binding Number}" Width="100"/>
                     <DataGridTextColumn Header="Date" Binding="{Binding Date, StringFormat=dd/MM/yyyy}" Width="95"/>
@@ -26,8 +62,8 @@
                     <DataGridTextColumn Header="Reste dû (DA)" Binding="{Binding Remaining, StringFormat=N2}" Width="110"/>
                 </DataGrid.Columns>
             </DataGrid>
-            <TextBlock Grid.Row="2" Text="Détail du bon sélectionné" Style="{StaticResource Section}" Margin="0,16,0,6"/>
-            <DataGrid Grid.Row="3" ItemsSource="{Binding SelectedDetails}">
+            <TextBlock Grid.Row="4" Text="Détail du bon sélectionné" Style="{StaticResource Section}" Margin="0,16,0,6"/>
+            <DataGrid Grid.Row="5" ItemsSource="{Binding SelectedDetails}">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Produit" Binding="{Binding ProductName}" Width="*"/>
                     <DataGridTextColumn Header="Quantité / montant" Binding="{Binding Quantity, StringFormat=N2}" Width="140"/>

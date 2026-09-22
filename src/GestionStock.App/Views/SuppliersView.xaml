@@ -9,7 +9,29 @@
         </Grid.ColumnDefinitions>
 
         <DockPanel>
-            <TextBlock DockPanel.Dock="Top" Text="Liste des fournisseurs" Style="{StaticResource Title}"/>
+            <DockPanel DockPanel.Dock="Top">
+                <TextBlock Text="Liste des fournisseurs" Style="{StaticResource Title}"/>
+                <Button DockPanel.Dock="Right" Content="Imprimer" Command="{Binding PrintCommand}" HorizontalAlignment="Right" Margin="0,0,0,12"/>
+            </DockPanel>
+            <StackPanel DockPanel.Dock="Top">
+                <TextBlock Text="Rechercher (référence, raison sociale)" Style="{StaticResource FieldLabel}"/>
+                <TextBox Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}"/>
+                <Grid Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Dette min. (DA)" Style="{StaticResource FieldLabel}"/>
+                        <TextBox Text="{Binding DebtMin, UpdateSourceTrigger=PropertyChanged}" Margin="0"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Dette max. (DA)" Style="{StaticResource FieldLabel}"/>
+                        <TextBox Text="{Binding DebtMax, UpdateSourceTrigger=PropertyChanged}" Margin="0"/>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
             <DataGrid ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Référence" Binding="{Binding Reference}" Width="110"/>

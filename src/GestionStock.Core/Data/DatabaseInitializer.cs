@@ -27,10 +27,22 @@ public static class DatabaseInitializer
         {
             var ops = await db.Operators.ToDictionaryAsync(o => o.Name, o => o.Id);
             db.Products.AddRange(
-                new Product { Name = "Flexy", Kind = ProductKind.VirtualCredit, OperatorId = ops["Djezzy"] },
-                new Product { Name = "Storm", Kind = ProductKind.VirtualCredit, OperatorId = ops["Ooredoo"] },
-                new Product { Name = "Erselli", Kind = ProductKind.VirtualCredit, OperatorId = ops["Mobilis"] },
-                new Product { Name = "Cartes Idoom", Kind = ProductKind.Physical });
+                new Product { Name = "Flexy", Kind = ProductKind.VirtualCredit, OperatorId = ops["Djezzy"], ColorHex = "#F59E0B" },
+                new Product { Name = "Storm", Kind = ProductKind.VirtualCredit, OperatorId = ops["Ooredoo"], ColorHex = "#DC2626" },
+                new Product { Name = "Erselli", Kind = ProductKind.VirtualCredit, OperatorId = ops["Mobilis"], ColorHex = "#16A34A" },
+                new Product { Name = "Cartes Idoom", Kind = ProductKind.Physical, ColorHex = "#2563EB" });
+        }
+        else
+        {
+            // Bases créées avant l'ajout des couleurs : on assigne une couleur reconnaissable aux produits de départ
+            // qui ont encore la couleur neutre par défaut, sans toucher aux couleurs déjà choisies par l'utilisateur.
+            var knownColors = new Dictionary<string, string>
+            {
+                ["Flexy"] = "#F59E0B", ["Storm"] = "#DC2626", ["Erselli"] = "#16A34A", ["Cartes Idoom"] = "#2563EB",
+            };
+            var toFix = await db.Products.Where(p => p.ColorHex == "#6B7280").ToListAsync();
+            foreach (var p in toFix)
+                if (knownColors.TryGetValue(p.Name, out var hex)) p.ColorHex = hex;
         }
 
         await db.SaveChangesAsync();

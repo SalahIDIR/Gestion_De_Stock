@@ -25,5 +25,6 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand] private void ShowProducts() => CurrentPage = ActivatorUtilities.CreateInstance<ProductsViewModel>(_services);
     [RelayCommand] private void ShowDeliveries() => CurrentPage = ActivatorUtilities.CreateInstance<DeliveriesViewModel>(_services);
     [RelayCommand] private void ShowPurchases() => CurrentPage = ActivatorUtilities.CreateInstance<PurchasesViewModel>(_services);
+    [RelayCommand] private void ShowReport() => CurrentPage = ActivatorUtilities.CreateInstance<ReportViewModel>(_services);
     [RelayCommand] private void ShowSettings() => CurrentPage = ActivatorUtilities.CreateInstance<SettingsViewModel>(_services, CurrentUser);
 }

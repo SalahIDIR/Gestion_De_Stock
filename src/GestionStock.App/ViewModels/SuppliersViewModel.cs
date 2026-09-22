@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GestionStock.App.Services;
 using GestionStock.Core.Domain;
 using GestionStock.Core.Services;
 
@@ -16,6 +17,8 @@ public record SupplierRow(Supplier Supplier, decimal Debt)
 public partial class SuppliersViewModel : ViewModelBase
 {
     private readonly SupplierService _service;
+    private List<Supplier> _all = new();
+    private Dictionary<int, decimal> _debts = new();
 
     public SuppliersViewModel(SupplierService service)
     {
@@ -25,6 +28,9 @@ public partial class SuppliersViewModel : ViewModelBase
 
     public ObservableCollection<SupplierRow> Items { get; } = new();
 
+    [ObservableProperty] private string _search = "";
+    [ObservableProperty] private string _debtMin = "";
+    [ObservableProperty] private string _debtMax = "";
     [ObservableProperty] private SupplierRow? _selected;
     [ObservableProperty] private int _editId;
     [ObservableProperty] private string _reference = "";
@@ -36,6 +42,9 @@ public partial class SuppliersViewModel : ViewModelBase
     public string FormTitle => EditId == 0 ? "Nouveau fournisseur" : "Modifier le fournisseur";
 
     partial void OnEditIdChanged(int value) => OnPropertyChanged(nameof(FormTitle));
+    partial void OnSearchChanged(string value) => ApplyFilter();
+    partial void OnDebtMinChanged(string value) => ApplyFilter();
+    partial void OnDebtMaxChanged(string value) => ApplyFilter();
 
     partial void OnSelectedChanged(SupplierRow? value)
     {
@@ -53,11 +62,28 @@ public partial class SuppliersViewModel : ViewModelBase
     {
         await TryAsync(async () =>
         {
-            var suppliers = await _service.ListAsync();
-            var debts = await _service.GetDebtsAsync();
-            Items.Clear();
-            foreach (var s in suppliers) Items.Add(new SupplierRow(s, debts.GetValueOrDefault(s.Id)));
+            _all = await _service.ListAsync();
+            _debts = await _service.GetDebtsAsync();
+            ApplyFilter();
         });
+    }
+
+    private void ApplyFilter()
+    {
+        var term = Search.Trim();
+        var min = ParseDecimal(DebtMin);
+        var max = ParseDecimal(DebtMax);
+
+        var rows = _all
+            .Where(s => term.Length == 0
+                || s.CompanyName.Contains(term, StringComparison.CurrentCultureIgnoreCase)
+                || s.Reference.Contains(term, StringComparison.CurrentCultureIgnoreCase))
+            .Select(s => new SupplierRow(s, _debts.GetValueOrDefault(s.Id)))
+            .Where(r => min == null || r.Debt >= min)
+            .Where(r => max == null || r.Debt <= max);
+
+        Items.Clear();
+        foreach (var r in rows) Items.Add(r);
     }
 
     [RelayCommand]
@@ -90,5 +116,13 @@ public partial class SuppliersViewModel : ViewModelBase
             New();
             await LoadAsync();
         }
+    }
+
+    [RelayCommand]
+    private void Print()
+    {
+        PrintHelper.PrintTable("Liste des fournisseurs",
+            ["Référence", "Raison sociale", "Téléphone", "Dette (DA)"],
+            Items.Select(r => new[] { r.Reference, r.CompanyName, r.Phone ?? "", r.Debt.ToString("N2") }).ToList());
     }
 }

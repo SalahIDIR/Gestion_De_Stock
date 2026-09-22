@@ -30,6 +30,17 @@ public class PurchaseService
         return rows.OrderByDescending(p => p.Date).ThenByDescending(p => p.Id).ToList();
     }
 
+    /// <summary>
+    /// Tarif d'achat courant de chaque produit pour ce fournisseur. Fixé automatiquement lors du premier bon,
+    /// modifiable ensuite ; la modification ne s'applique qu'aux futurs bons.
+    /// </summary>
+    public async Task<Dictionary<int, decimal>> GetLastPricesAsync(int supplierId)
+    {
+        await using var db = await _factory.CreateDbContextAsync();
+        return await db.SupplierProductRates.AsNoTracking().Where(r => r.SupplierId == supplierId)
+            .ToDictionaryAsync(r => r.ProductId, r => r.Rate);
+    }
+
     /// <summary>Crée un bon d'achat, ajoute les quantités au stock et écrit le journal, le tout dans une transaction.</summary>
     public async Task<PurchaseOrder> CreateAsync(PurchaseInput input)
     {
@@ -90,14 +101,22 @@ public class PurchaseService
         await db.SaveChangesAsync();
 
         order.Number = $"BA-{order.Id:D6}";
-        foreach (var (movement, _) in movements)
+        foreach (var (movement, line) in movements)
         {
             movement.PurchaseOrderId = order.Id;
             movement.Note = order.Number;
             db.StockMovements.Add(movement);
+            await UpsertRateAsync(db, input.SupplierId, line.ProductId, line.UnitCost);
         }
         await db.SaveChangesAsync();
         await tx.CommitAsync();
         return order;
+    }
+
+    private static async Task UpsertRateAsync(AppDbContext db, int supplierId, int productId, decimal rate)
+    {
+        var existing = await db.SupplierProductRates.FirstOrDefaultAsync(r => r.SupplierId == supplierId && r.ProductId == productId);
+        if (existing == null) db.SupplierProductRates.Add(new SupplierProductRate { SupplierId = supplierId, ProductId = productId, Rate = rate });
+        else existing.Rate = rate;
     }
 }

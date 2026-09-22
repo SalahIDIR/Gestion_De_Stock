@@ -11,13 +11,39 @@
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <TextBlock Text="Produits &amp; stock" Style="{StaticResource Title}"/>
-            <DataGrid Grid.Row="1" ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}">
+            <DockPanel>
+                <TextBlock Text="Produits &amp; stock" Style="{StaticResource Title}"/>
+                <Button DockPanel.Dock="Right" Content="Imprimer" Command="{Binding PrintCommand}" HorizontalAlignment="Right" Margin="0,0,0,12"/>
+            </DockPanel>
+            <Grid Grid.Row="1" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="180"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Rechercher (nom)" Style="{StaticResource FieldLabel}"/>
+                    <TextBox Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" Margin="0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Type" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox ItemsSource="{Binding KindFilters}" DisplayMemberPath="Label" SelectedItem="{Binding KindFilter}" Margin="0"/>
+                </StackPanel>
+            </Grid>
+            <DataGrid Grid.Row="2" ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}">
                 <DataGrid.Columns>
+                    <DataGridTemplateColumn Header="" Width="26">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Rectangle Width="12" Height="12" RadiusX="2" RadiusY="2" Fill="{Binding ColorHex, Converter={StaticResource HexToBrush}}"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                     <DataGridTextColumn Header="Produit" Binding="{Binding Name}" Width="*"/>
                     <DataGridTextColumn Header="Type" Binding="{Binding KindLabel}" Width="130"/>
                     <DataGridTextColumn Header="Opérateur" Binding="{Binding OperatorName}" Width="100"/>
@@ -34,8 +60,8 @@
                 </DataGrid.Columns>
             </DataGrid>
 
-            <TextBlock Grid.Row="2" Text="Mouvements du produit sélectionné" Style="{StaticResource Section}" Margin="0,16,0,6"/>
-            <DataGrid Grid.Row="3" ItemsSource="{Binding Movements}">
+            <TextBlock Grid.Row="3" Text="Mouvements du produit sélectionné" Style="{StaticResource Section}" Margin="0,16,0,6"/>
+            <DataGrid Grid.Row="4" ItemsSource="{Binding Movements}">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Date" Binding="{Binding Date, StringFormat=dd/MM/yyyy HH:mm}" Width="140"/>
                     <DataGridTextColumn Header="Type" Binding="{Binding KindLabel}" Width="100"/>
@@ -60,6 +86,26 @@
                         <ComboBox ItemsSource="{Binding Operators}" DisplayMemberPath="Name" SelectedItem="{Binding Operator}"/>
                     </StackPanel>
                     <CheckBox Content="Produit actif" IsChecked="{Binding IsActive}"/>
+
+                    <TextBlock Text="Couleur dans le rapport" Style="{StaticResource FieldLabel}"/>
+                    <DockPanel Margin="0,2,0,6">
+                        <Rectangle DockPanel.Dock="Left" Width="26" Height="26" RadiusX="4" RadiusY="4" Margin="0,0,8,0"
+                                   Fill="{Binding ColorHex, Converter={StaticResource HexToBrush}}" Stroke="{StaticResource Line}"/>
+                        <TextBox Text="{Binding ColorHex, UpdateSourceTrigger=PropertyChanged}" Margin="0"/>
+                    </DockPanel>
+                    <ItemsControl ItemsSource="{Binding ColorPresets}" Margin="0,0,0,8">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Width="22" Height="22" Margin="0,0,6,6" Padding="0" BorderThickness="1" BorderBrush="{StaticResource Line}"
+                                        Background="{Binding Converter={StaticResource HexToBrush}}"
+                                        Command="{Binding DataContext.PickColorCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding}"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
 
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                         <Button Content="Enregistrer" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButton}"/>
