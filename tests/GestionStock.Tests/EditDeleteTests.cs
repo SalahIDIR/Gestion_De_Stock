@@ -82,15 +82,18 @@ public class EditDeleteTests
     }
 
     [Fact]
-    public async Task A_delivery_already_settled_by_a_later_encaissement_cannot_be_deleted()
+    public async Task Reducing_or_deleting_a_delivery_already_settled_leaves_the_client_in_credit()
     {
         var (c, _) = await SetupAsync();
         using var _ = c.Db;
         var note = await c.Deliveries.CreateAsync(Sale(c, 10_000m, 0m));
         await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 10_000m));
 
-        await Assert.ThrowsAsync<BusinessException>(() => c.Deliveries.DeleteAsync(note.Id));
-        await Assert.ThrowsAsync<BusinessException>(() => c.Deliveries.UpdateAsync(note.Id, Sale(c, 5_000m, 0m)));
+        await c.Deliveries.UpdateAsync(note.Id, Sale(c, 5_000m, 0m));
+        Assert.Equal(-5_000m, await c.Deliveries.GetClientDebtAsync(c.Client.Id));
+
+        await c.Deliveries.DeleteAsync(note.Id);
+        Assert.Equal(-10_000m, await c.Deliveries.GetClientDebtAsync(c.Client.Id));
     }
 
     [Fact]
@@ -103,8 +106,8 @@ public class EditDeleteTests
 
         await c.Deliveries.UpdateAsync(enc.Id, new DeliveryInput(c.Client.Id, DateTime.Today, [], 10_000m));
         Assert.Equal(0m, await c.Deliveries.GetClientDebtAsync(c.Client.Id));
-        await Assert.ThrowsAsync<BusinessException>(() =>
-            c.Deliveries.UpdateAsync(enc.Id, new DeliveryInput(c.Client.Id, DateTime.Today, [], 10_001m)));
+        await c.Deliveries.UpdateAsync(enc.Id, new DeliveryInput(c.Client.Id, DateTime.Today, [], 12_000m));
+        Assert.Equal(-2_000m, await c.Deliveries.GetClientDebtAsync(c.Client.Id));
 
         await c.Deliveries.DeleteAsync(enc.Id);
         Assert.Equal(10_000m, await c.Deliveries.GetClientDebtAsync(c.Client.Id));

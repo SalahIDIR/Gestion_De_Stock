@@ -17,6 +17,11 @@ public partial class DeliveryLineEditor : ObservableObject
 
     public ObservableCollection<ClientChip> AvailableChips { get; } = new();
 
+    public DeliveryLineEditor() => AvailableChips.CollectionChanged += (_, _) => OnPropertyChanged(nameof(CanChooseChip));
+
+    /// <summary>Le choix de puce n'est ouvert que si le client a plusieurs puces pour l'opérateur du produit.</summary>
+    public bool CanChooseChip => AvailableChips.Count > 1;
+
     public decimal? Quantity => ViewModelBase.ParseDecimal(QuantityText);
     public decimal? UnitPrice => ViewModelBase.ParseDecimal(UnitPriceText);
 
@@ -253,21 +258,27 @@ public partial class DeliveriesViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Propose toutes les puces du client. Garde la puce déjà choisie si elle existe encore ; sinon présélectionne celle
-    /// utilisée la dernière fois pour ce produit, ou la seule puce du client s'il n'en a qu'une.
+    /// Propose les puces du client pour l'opérateur du produit (Flexy = Djezzy, Storm = Ooredoo, Erselli = Mobilis) ;
+    /// aucune pour un produit physique, toutes pour un crédit virtuel d'un autre nom. Garde la puce déjà choisie si elle
+    /// est encore valable ; sinon présélectionne celle utilisée la dernière fois pour ce produit, ou le numéro principal.
     /// </summary>
     private void PopulateChips(DeliveryLineEditor line)
     {
         var keep = line.SelectedChip?.PhoneNumber;
         line.AvailableChips.Clear();
-        if (Client != null)
-            foreach (var chip in Client.Chips.OrderBy(c => c.Operator?.Name).ThenBy(c => c.Slot))
+        if (Client != null && line.Product is { Kind: ProductKind.VirtualCredit } product)
+        {
+            var operatorName = ProductOperators.OperatorNameFor(product.Name);
+            foreach (var chip in Client.Chips
+                         .Where(c => operatorName == null || string.Equals(c.Operator?.Name, operatorName, StringComparison.OrdinalIgnoreCase))
+                         .OrderBy(c => c.Operator?.Name).ThenBy(c => c.Slot))
                 line.AvailableChips.Add(chip);
+        }
 
         var lastUsed = line.Product != null && _lastRecipients.TryGetValue(line.Product.Id, out var phone) ? phone : null;
         line.SelectedChip = line.AvailableChips.FirstOrDefault(c => c.PhoneNumber == keep)
                             ?? line.AvailableChips.FirstOrDefault(c => c.PhoneNumber == lastUsed)
-                            ?? (line.AvailableChips.Count == 1 ? line.AvailableChips[0] : null);
+                            ?? line.AvailableChips.FirstOrDefault();
     }
 
     private async Task InitializeAsync()

@@ -118,11 +118,9 @@ public class DeliveryService
 
         if (isPaymentOnly)
         {
+            // Le montant peut dépasser la dette : le solde du client devient négatif (avoir en sa faveur).
             if (input.AmountPaid <= 0)
                 throw new BusinessException("Un bon sans produit doit avoir un montant encaissé positif.");
-            if (input.AmountPaid > currentDebt)
-                throw new BusinessException(
-                    $"Le montant encaissé ({input.AmountPaid:N2} DA) dépasse la dette du client ({currentDebt:N2} DA).");
             note.Total = 0;
             note.AmountPaid = input.AmountPaid;
         }
@@ -135,11 +133,13 @@ public class DeliveryService
             CheckStock(note.Lines, products, p => p.StockBalance);
 
             note.Total = note.Lines.Sum(l => l.LineTotal);
-            if (input.AmountPaid < 0 || input.AmountPaid > note.Total)
-                throw new BusinessException("Le montant encaissé doit être compris entre 0 et le total du bon.");
+            // L'encaissement peut dépasser le total du bon : le surplus réduit la dette, qui peut devenir négative (avoir).
+            if (input.AmountPaid < 0)
+                throw new BusinessException("Le montant encaissé ne peut pas être négatif.");
             note.AmountPaid = input.AmountPaid;
 
-            if (client.CreditLimit > 0)
+            // Le plafond ne bloque que si ce bon augmente la dette (un encaissement supérieur au total la réduit).
+            if (client.CreditLimit > 0 && note.Remaining > 0)
             {
                 var debtAfter = currentDebt + note.Remaining;
                 if (debtAfter > client.CreditLimit)
@@ -210,9 +210,6 @@ public class DeliveryService
         {
             if (input.AmountPaid <= 0)
                 throw new BusinessException("Un bon sans produit doit avoir un montant encaissé positif.");
-            if (input.AmountPaid > debtWithoutNote)
-                throw new BusinessException(
-                    $"Le montant encaissé ({input.AmountPaid:N2} DA) dépasse la dette du client ({debtWithoutNote:N2} DA).");
             total = 0m;
         }
         else
@@ -223,28 +220,15 @@ public class DeliveryService
             CheckStock(newLines, products, p => p.StockBalance + released.GetValueOrDefault(p.Id));
 
             total = newLines.Sum(l => l.LineTotal);
-            if (input.AmountPaid < 0 || input.AmountPaid > total)
-                throw new BusinessException("Le montant encaissé doit être compris entre 0 et le total du bon.");
+            if (input.AmountPaid < 0)
+                throw new BusinessException("Le montant encaissé ne peut pas être négatif.");
 
+            // La dette peut devenir négative (avoir en faveur du client) ; le plafond ne bloque que si la modification l'augmente.
             var debtAfter = debtWithoutNote + total - input.AmountPaid;
-            if (debtAfter < 0)
-                throw new BusinessException(
-                    $"La dette de « {client.Name} » deviendrait négative ({debtAfter:N2} DA) : des encaissements ont déjà été " +
-                    "enregistrés après ce bon. Supprimez ou modifiez d'abord ces encaissements.");
-            // Le plafond ne bloque que si la modification augmente la dette.
             if (client.CreditLimit > 0 && debtAfter > client.CreditLimit && debtAfter > debtBefore)
                 throw new BusinessException(
                     $"Plafond de crédit dépassé pour « {client.Name} » : la dette serait de {debtAfter:N2} DA " +
                     $"pour un plafond de {client.CreditLimit:N2} DA.");
-        }
-
-        if (!sameClient)
-        {
-            var oldClientDebtAfter = await DebtOfAsync(db, note.ClientId) - note.Remaining;
-            if (oldClientDebtAfter < 0)
-                throw new BusinessException(
-                    "Le client d'origine a déjà réglé ce bon par des encaissements : sa dette deviendrait négative. " +
-                    "Supprimez ou modifiez d'abord ces encaissements.");
         }
 
         var now = DateTime.Now;
@@ -310,14 +294,9 @@ public class DeliveryService
         await using var db = await _factory.CreateDbContextAsync();
         await using var tx = await db.Database.BeginTransactionAsync();
 
-        var note = await db.DeliveryNotes.Include(n => n.Lines).Include(n => n.Client).FirstOrDefaultAsync(n => n.Id == noteId);
+        // La dette du client peut devenir négative (avoir) si des encaissements avaient déjà réglé ce bon.
+        var note = await db.DeliveryNotes.Include(n => n.Lines).FirstOrDefaultAsync(n => n.Id == noteId);
         if (note == null) return;
-
-        var debtAfter = await DebtOfAsync(db, note.ClientId) - note.Remaining;
-        if (debtAfter < 0)
-            throw new BusinessException(
-                $"La dette de « {note.Client?.Name} » deviendrait négative ({debtAfter:N2} DA) : des encaissements ont déjà " +
-                "été enregistrés sur ce bon. Supprimez d'abord ces encaissements.");
 
         var productIds = note.Lines.Select(l => l.ProductId).Distinct().ToList();
         var products = await db.Products.Where(p => productIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);

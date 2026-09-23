@@ -225,6 +225,15 @@ public class MasterDataTests
     }
 
     [Fact]
+    public void Each_virtual_credit_has_its_fixed_operator()
+    {
+        Assert.Equal("Djezzy", ProductOperators.OperatorNameFor("Flexy"));
+        Assert.Equal("Ooredoo", ProductOperators.OperatorNameFor("Storm"));
+        Assert.Equal("Mobilis", ProductOperators.OperatorNameFor("erselli"));
+        Assert.Null(ProductOperators.OperatorNameFor("Cartes Idoom"));
+    }
+
+    [Fact]
     public async Task Product_rules()
     {
         using var db = await TestDb.CreateAsync();

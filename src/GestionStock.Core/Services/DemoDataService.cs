@@ -185,7 +185,10 @@ public class DemoDataService
                     {
                         qty = rng.Next(2, 81) * 500m;
                         price = 0.9800m + rng.Next(0, 5) * 0.0025m;
-                        phone = client.Chips.Count == 0 ? null : client.Chips[rng.Next(client.Chips.Count)].PhoneNumber;
+                        var operatorName = ProductOperators.OperatorNameFor(product.Name);
+                        var operatorId = operators.FirstOrDefault(o => o.Name == operatorName)?.Id;
+                        phone = client.Chips.Where(c => operatorId == null || c.OperatorId == operatorId).OrderBy(c => c.Slot)
+                            .FirstOrDefault()?.PhoneNumber;
                     }
                     else
                     {

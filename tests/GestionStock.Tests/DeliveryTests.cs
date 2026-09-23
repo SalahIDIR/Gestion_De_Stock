@@ -161,7 +161,7 @@ public class DeliveryTests
         await Assert.ThrowsAsync<BusinessException>(() => d.CreateAsync(Bon(c, 1_000m, 9_800m)));       // coefficient aberrant
         await Assert.ThrowsAsync<BusinessException>(() => d.CreateAsync(Bon(c, 0m, 0.98m)));            // montant nul
         await Assert.ThrowsAsync<BusinessException>(() => d.CreateAsync(Bon(c, 1_000m, 0m)));           // coefficient nul
-        await Assert.ThrowsAsync<BusinessException>(() => d.CreateAsync(Bon(c, 1_000m, 0.98m, 2_000m))); // encaissé > total
+        await Assert.ThrowsAsync<BusinessException>(() => d.CreateAsync(Bon(c, 1_000m, 0.98m, -1m)));    // encaissé négatif
         await Assert.ThrowsAsync<BusinessException>(() => d.CreateAsync(
             new DeliveryInput(999, today, [new DeliveryLineInput(c.Flexy.Id, 1_000m, 0.98m)], 0m)));   // client inconnu
 
@@ -218,16 +218,27 @@ public class DeliveryTests
     }
 
     [Fact]
-    public async Task Payment_only_bon_is_rejected_when_zero_or_over_the_debt()
+    public async Task Payment_only_bon_must_be_positive_but_may_exceed_the_debt()
     {
         var c = await SetupAsync();
         using var _ = c.Db;
         await c.Deliveries.CreateAsync(Bon(c, 1_000m, 1m)); // dette 1 000
 
         await Assert.ThrowsAsync<BusinessException>(() => c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 0m)));
-        await Assert.ThrowsAsync<BusinessException>(() => c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 1_000.01m)));
-        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 1_000m));
-        Assert.Equal(0m, await c.Deliveries.GetClientDebtAsync(c.Client.Id));
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 1_500m));
+        Assert.Equal(-500m, await c.Deliveries.GetClientDebtAsync(c.Client.Id)); // avoir en faveur du client
+    }
+
+    [Fact]
+    public async Task Encaissement_above_the_bon_total_is_accepted_and_puts_the_client_in_credit()
+    {
+        var c = await SetupAsync(creditLimit: 1_000m);
+        using var _ = c.Db;
+
+        var note = await c.Deliveries.CreateAsync(Bon(c, 5_000m, 1m, paid: 8_000m));
+
+        Assert.Equal(-3_000m, note.Remaining);
+        Assert.Equal(-3_000m, await c.Deliveries.GetClientDebtAsync(c.Client.Id));
     }
 
     [Fact]

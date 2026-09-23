@@ -46,6 +46,24 @@ public class Operator
     public override string ToString() => Name;
 }
 
+/// <summary>
+/// Opérateur fixe de chaque crédit virtuel, reconnu par le nom du produit : Flexy = Djezzy, Storm = Ooredoo, Erselli = Mobilis.
+/// Sert à proposer la bonne puce du client dans un bon de livraison.
+/// </summary>
+public static class ProductOperators
+{
+    private static readonly Dictionary<string, string> ByProduct = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Flexy"] = "Djezzy",
+        ["Storm"] = "Ooredoo",
+        ["Erselli"] = "Mobilis",
+    };
+
+    /// <summary>Nom de l'opérateur du produit, ou null si le produit n'est pas un des crédits connus.</summary>
+    public static string? OperatorNameFor(string? productName)
+        => productName != null && ByProduct.TryGetValue(productName.Trim(), out var op) ? op : null;
+}
+
 public class Supplier
 {
     public int Id { get; set; }

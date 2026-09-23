@@ -183,7 +183,8 @@
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <ComboBox Margin="2" ItemsSource="{Binding AvailableChips}" DisplayMemberPath="DisplayLabel"
-                                                  SelectedItem="{Binding SelectedChip, UpdateSourceTrigger=PropertyChanged}"/>
+                                                  SelectedItem="{Binding SelectedChip, UpdateSourceTrigger=PropertyChanged}"
+                                                  IsEnabled="{Binding CanChooseChip}"/>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
