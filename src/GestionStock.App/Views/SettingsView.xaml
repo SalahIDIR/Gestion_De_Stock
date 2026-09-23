@@ -76,6 +76,20 @@
                     <Button Content="Modifier le mot de passe" Command="{Binding ChangePasswordCommand}" HorizontalAlignment="Left"/>
                 </StackPanel>
             </Border>
+
+            <!-- Démonstration -->
+            <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="18" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Données de démonstration" Style="{StaticResource Section}" Margin="0,0,0,4"/>
+                    <TextBlock Style="{StaticResource FieldLabel}" TextWrapping="Wrap" Margin="0,0,0,10"
+                               Text="Ajoute 300 clients, 5 fournisseurs et environ 3 mois d'opérations fictives (bons d'achat, bons de livraison, encaissements) pour essayer l'application. À utiliser sur une base de test uniquement."/>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Générer les données de démo" Command="{Binding GenerateDemoDataCommand}"/>
+                        <TextBlock Text="Génération en cours…" Style="{StaticResource FieldLabel}" VerticalAlignment="Center"
+                                   Visibility="{Binding IsGeneratingDemo, Converter={StaticResource BoolToVis}}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

@@ -17,6 +17,20 @@ public partial class PurchaseLineEditor : ObservableObject
     public decimal? Quantity => ViewModelBase.ParseDecimal(QuantityText);
     public decimal? UnitCost => ViewModelBase.ParseDecimal(UnitCostText);
 
+    private bool _settingAutoPrice;
+
+    /// <summary>Vrai si le coefficient a été proposé automatiquement (tarif du fournisseur) et pas saisi à la main.</summary>
+    public bool IsPriceAutoFilled { get; private set; }
+
+    /// <summary>Remplit le coefficient avec le tarif proposé ; il sera remplacé si le fournisseur ou le produit change.</summary>
+    public void SetAutoPrice(string text)
+    {
+        _settingAutoPrice = true;
+        UnitCostText = text;
+        _settingAutoPrice = false;
+        IsPriceAutoFilled = text.Length > 0;
+    }
+
     /// <summary>Coût de la ligne, ou null tant que la saisie est incomplète.</summary>
     public decimal? Total => Quantity is > 0 && UnitCost is > 0
         ? PurchaseService.ComputeLineTotal(Quantity.Value, UnitCost.Value)
@@ -31,7 +45,11 @@ public partial class PurchaseLineEditor : ObservableObject
 
     partial void OnProductChanged(Product? value) => OnPropertyChanged(nameof(Hint));
     partial void OnQuantityTextChanged(string value) => OnPropertyChanged(nameof(Total));
-    partial void OnUnitCostTextChanged(string value) => OnPropertyChanged(nameof(Total));
+    partial void OnUnitCostTextChanged(string value)
+    {
+        if (!_settingAutoPrice) IsPriceAutoFilled = false; // saisi à la main : on n'y touche plus
+        OnPropertyChanged(nameof(Total));
+    }
 }
 
 public record PurchaseRow(PurchaseOrder Order)
@@ -43,12 +61,12 @@ public record PurchaseRow(PurchaseOrder Order)
     public decimal Remaining => Order.Remaining;
 }
 
-public record PurchaseLineRow(PurchaseLine Line)
+/// <summary>Ligne du détail d'un bon : un produit acheté, ou le montant payé au fournisseur (<see cref="IsPayment"/>).</summary>
+public record PurchaseLineRow(string ProductName, decimal? Quantity, decimal? UnitCost, decimal LineTotal, bool IsPayment = false)
 {
-    public string ProductName => Line.Product?.Name ?? "";
-    public decimal Quantity => Line.Quantity;
-    public decimal UnitCost => Line.UnitCost;
-    public decimal LineTotal => Line.LineTotal;
+    public static PurchaseLineRow From(PurchaseLine line) => new(line.Product?.Name ?? "", line.Quantity, line.UnitCost, line.LineTotal);
+
+    public static PurchaseLineRow Payment(decimal amount) => new("Payé", null, null, amount, IsPayment: true);
 }
 
 public partial class PurchasesViewModel : ViewModelBase
@@ -92,10 +110,18 @@ public partial class PurchasesViewModel : ViewModelBase
     [ObservableProperty] private DateTime? _historyTo;
     [ObservableProperty] private string _historyAmountMin = "";
     [ObservableProperty] private string _historyAmountMax = "";
-    [ObservableProperty] private PurchaseRow? _selectedPurchase;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(EditCommand), nameof(DeleteCommand))]
+    private PurchaseRow? _selectedPurchase;
+
+    /// <summary>Bon en cours de modification dans le formulaire, ou null pour un nouveau bon.</summary>
+    private PurchaseOrder? _editingOrder;
+
+    public string FormTitle => _editingOrder == null ? "Nouveau bon d'achat" : $"Modifier le bon {_editingOrder.Number}";
+    public string SaveLabel => _editingOrder == null ? "Enregistrer le bon" : "Enregistrer les modifications";
+    public bool IsEditing => _editingOrder != null;
 
     [ObservableProperty] private Supplier? _supplier;
-    [ObservableProperty] private DateTime _purchaseDate = DateTime.Today;
     [ObservableProperty] private PurchaseLineEditor? _selectedLine;
     [ObservableProperty] private string _paidText = "";
 
@@ -115,7 +141,8 @@ public partial class PurchasesViewModel : ViewModelBase
     {
         SelectedDetails.Clear();
         if (value == null) return;
-        foreach (var l in value.Order.Lines) SelectedDetails.Add(new PurchaseLineRow(l));
+        foreach (var l in value.Order.Lines) SelectedDetails.Add(PurchaseLineRow.From(l));
+        if (value.Order.AmountPaid > 0) SelectedDetails.Add(PurchaseLineRow.Payment(value.Order.AmountPaid));
     }
 
     private void RefreshTotals()
@@ -126,7 +153,12 @@ public partial class PurchasesViewModel : ViewModelBase
 
     private async Task LoadSupplierRatesAsync(Supplier? supplier)
     {
-        if (supplier == null) { _lastPrices = new(); return; }
+        if (supplier == null)
+        {
+            _lastPrices = new();
+            foreach (var line in Lines) PrefillPrice(line);
+            return;
+        }
         await TryAsync(async () =>
         {
             var prices = await _purchases.GetLastPricesAsync(supplier.Id);
@@ -136,12 +168,16 @@ public partial class PurchasesViewModel : ViewModelBase
         });
     }
 
-    /// <summary>Propose le tarif courant de ce fournisseur pour ce produit, si la case est vide.</summary>
+    /// <summary>
+    /// Propose le dernier coefficient de ce fournisseur pour ce produit. Un coefficient saisi à la main n'est jamais remplacé ;
+    /// un coefficient proposé automatiquement est remplacé si le fournisseur ou le produit change.
+    /// </summary>
     private void PrefillPrice(PurchaseLineEditor line)
     {
-        if (line.Product == null || !string.IsNullOrWhiteSpace(line.UnitCostText)) return;
-        if (_lastPrices.TryGetValue(line.Product.Id, out var price))
-            line.UnitCostText = price.ToString("0.####");
+        if (!string.IsNullOrWhiteSpace(line.UnitCostText) && !line.IsPriceAutoFilled) return;
+        line.SetAutoPrice(line.Product != null && _lastPrices.TryGetValue(line.Product.Id, out var price)
+            ? price.ToString("0.####")
+            : "");
     }
 
     private async Task InitializeAsync()
@@ -190,18 +226,131 @@ public partial class PurchasesViewModel : ViewModelBase
 
     private void ResetForm()
     {
+        SetEditingOrder(null);
         Supplier = null;
-        PurchaseDate = DateTime.Today;
         PaidText = "";
         Lines.Clear();
         AddLine();
     }
 
+    private void SetEditingOrder(PurchaseOrder? order)
+    {
+        _editingOrder = order;
+        OnPropertyChanged(nameof(FormTitle));
+        OnPropertyChanged(nameof(SaveLabel));
+        OnPropertyChanged(nameof(IsEditing));
+    }
+
+    private bool HasDraft => Supplier != null || !string.IsNullOrWhiteSpace(PaidText) || Lines.Any(l => l.Product != null
+        || !string.IsNullOrWhiteSpace(l.QuantityText) || !string.IsNullOrWhiteSpace(l.UnitCostText));
+
     [RelayCommand]
     private void Reset() => ResetForm();
 
+    /// <summary>Formulaire du bon affiché par-dessus la liste. Le fermer sans enregistrer garde la saisie en cours.</summary>
+    [ObservableProperty] private bool _isFormOpen;
+
     [RelayCommand]
-    private async Task SaveAsync()
+    private void OpenForm()
+    {
+        if (_editingOrder != null) ResetForm(); // on quitte la modification d'un bon pour en créer un nouveau
+        IsFormOpen = true;
+    }
+
+    [RelayCommand] private void CloseForm() => IsFormOpen = false;
+
+    private bool HasSelection() => SelectedPurchase != null;
+
+    /// <summary>Charge le bon sélectionné dans le formulaire pour le modifier (il garde son numéro et sa date).</summary>
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private void Edit()
+    {
+        if (SelectedPurchase == null) return;
+        var order = SelectedPurchase.Order;
+        if (_editingOrder == null && HasDraft
+            && !Confirm("Un nouveau bon d'achat est en cours de saisie. L'abandonner pour modifier le bon sélectionné ?")) return;
+
+        var inactive = order.Lines.FirstOrDefault(l => Products.All(p => p.Id != l.ProductId));
+        if (inactive != null)
+        {
+            Info($"Le produit « {inactive.Product?.Name} » est désactivé : réactivez-le pour pouvoir modifier ce bon.");
+            return;
+        }
+
+        ResetForm();
+        SetEditingOrder(order);
+        Supplier = Suppliers.FirstOrDefault(s => s.Id == order.SupplierId);
+        Lines.Clear();
+        foreach (var l in order.Lines)
+        {
+            var editor = new PurchaseLineEditor();
+            Lines.Add(editor);
+            editor.Product = Products.First(p => p.Id == l.ProductId);
+            editor.QuantityText = l.Quantity.ToString("0.##");
+            editor.UnitCostText = l.UnitCost.ToString("0.####");
+        }
+        if (Lines.Count == 0) AddLine();
+        PaidText = order.AmountPaid > 0 ? order.AmountPaid.ToString("0.##") : "";
+        IsFormOpen = true;
+    }
+
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private async Task DeleteAsync()
+    {
+        if (SelectedPurchase == null) return;
+        var order = SelectedPurchase.Order;
+        if (!Confirm($"Supprimer le bon d'achat {order.Number} ({order.Total:N2} DA) de « {order.Supplier?.CompanyName} » ?\n\n" +
+                     "Ses produits seront retirés du stock et la dette envers le fournisseur corrigée.\nCette action est définitive.")) return;
+
+        if (!await TryAsync(() => _purchases.DeleteAsync(order.Id))) return;
+        if (_editingOrder?.Id == order.Id)
+        {
+            ResetForm();
+            IsFormOpen = false;
+        }
+        await ReloadAfterChangeAsync();
+        Info($"Bon {order.Number} supprimé.");
+    }
+
+    private Task ReloadAfterChangeAsync() => TryAsync(async () =>
+    {
+        await LoadHistoryAsync();
+        Products.Clear();
+        foreach (var p in await _products.ListAsync()) Products.Add(p);
+    });
+
+    [RelayCommand]
+    private Task SaveAsync() => SaveCoreAsync(print: false);
+
+    [RelayCommand]
+    private Task SaveAndPrintAsync() => SaveCoreAsync(print: true);
+
+    /// <summary>Imprime le bon en cours de modification tel qu'il est enregistré (sans les changements non enregistrés).</summary>
+    [RelayCommand]
+    private async Task PrintEditingAsync()
+    {
+        if (_editingOrder != null) await PrintOrderAsync(_editingOrder.Id);
+    }
+
+    private async Task PrintOrderAsync(int orderId)
+    {
+        PurchaseOrder? order = null;
+        if (!await TryAsync(async () => order = await _purchases.GetAsync(orderId)) || order == null) return;
+
+        var supplier = order.Supplier;
+        PrintHelper.PrintBon("Bon d'achat", order.Number, order.Date,
+            [("Fournisseur", supplier?.CompanyName ?? ""), ("Référence", supplier?.Reference ?? ""),
+             ("Adresse", supplier?.Address ?? ""), ("Téléphone", supplier?.Phone1 ?? "")],
+            ["Produit", "Quantité / montant", "Coef. / prix", "Coût (DA)"],
+            order.Lines.Select(l => new[]
+            {
+                l.Product?.Name ?? "", l.Quantity.ToString("N2"), l.UnitCost.ToString("0.####"), l.LineTotal.ToString("N2"),
+            }).ToList(),
+            [("Total du bon", $"{order.Total:N2} DA"), ("Montant payé", $"{order.AmountPaid:N2} DA"),
+             ("Reste dû au fournisseur", $"{order.Remaining:N2} DA")]);
+    }
+
+    private async Task SaveCoreAsync(bool print)
     {
         if (Supplier == null) { Info("Sélectionnez un fournisseur."); return; }
 
@@ -217,19 +366,20 @@ public partial class PurchasesViewModel : ViewModelBase
         var paid = string.IsNullOrWhiteSpace(PaidText) ? 0m : ParseDecimal(PaidText);
         if (paid == null) { Info("Le montant payé n'est pas un nombre valide."); return; }
 
+        var editing = _editingOrder;
         PurchaseOrder? saved = null;
-        var ok = await TryAsync(async () =>
-            saved = await _purchases.CreateAsync(new PurchaseInput(Supplier.Id, PurchaseDate, lines, paid.Value)));
+        var ok = await TryAsync(async () => saved = editing == null
+            ? await _purchases.CreateAsync(new PurchaseInput(Supplier.Id, DateTime.Now, lines, paid.Value))
+            : await _purchases.UpdateAsync(editing.Id, new PurchaseInput(Supplier.Id, editing.Date, lines, paid.Value)));
         if (!ok || saved == null) return;
 
         ResetForm();
-        await TryAsync(async () =>
-        {
-            await LoadHistoryAsync();
-            Products.Clear();
-            foreach (var p in await _products.ListAsync()) Products.Add(p);
-        });
-        Info($"Bon d'achat {saved.Number} enregistré ({saved.Total:N2} DA). Le stock a été mis à jour.");
+        IsFormOpen = false;
+        await ReloadAfterChangeAsync();
+        Info(editing == null
+            ? $"Bon d'achat {saved.Number} enregistré ({saved.Total:N2} DA). Le stock a été mis à jour."
+            : $"Bon d'achat {saved.Number} modifié ({saved.Total:N2} DA). Le stock, la dette fournisseur et le rapport ont été mis à jour.");
+        if (print) await PrintOrderAsync(saved.Id);
     }
 
     [RelayCommand]

@@ -75,7 +75,12 @@ public partial class ClientsViewModel : ViewModelBase
     [ObservableProperty] private bool _onlyDebtors;
     [ObservableProperty] private string _debtMin = "";
     [ObservableProperty] private string _debtMax = "";
-    [ObservableProperty] private ClientRow? _selected;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(EditCommand), nameof(DeleteCommand))]
+    private ClientRow? _selected;
+
+    /// <summary>Formulaire du client affiché par-dessus la liste. Le fermer sans enregistrer garde la saisie en cours.</summary>
+    [ObservableProperty] private bool _isFormOpen;
     [ObservableProperty] private int _editId;
     [ObservableProperty] private string _name = "";
     [ObservableProperty] private string _address = "";
@@ -86,12 +91,12 @@ public partial class ClientsViewModel : ViewModelBase
     [ObservableProperty] private decimal _totalDisplayedDebt;
 
     public string FormTitle => EditId == 0 ? "Nouveau client" : "Modifier le client";
-    public bool HasSelection => EditId != 0;
+    public bool IsEditing => EditId != 0;
 
     partial void OnEditIdChanged(int value)
     {
         OnPropertyChanged(nameof(FormTitle));
-        OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(IsEditing));
     }
 
     partial void OnSearchChanged(string value) => ApplyFilter();
@@ -99,9 +104,22 @@ public partial class ClientsViewModel : ViewModelBase
     partial void OnDebtMinChanged(string value) => ApplyFilter();
     partial void OnDebtMaxChanged(string value) => ApplyFilter();
 
-    partial void OnSelectedChanged(ClientRow? value)
+    private bool HasSelection() => Selected != null;
+
+    [RelayCommand]
+    private void OpenForm()
     {
-        if (value == null) return;
+        if (EditId != 0) New(); // on quitte la modification d'un client pour en créer un nouveau
+        IsFormOpen = true;
+    }
+
+    [RelayCommand] private void CloseForm() => IsFormOpen = false;
+
+    /// <summary>Charge le client sélectionné dans le formulaire pour le modifier.</summary>
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private void Edit()
+    {
+        if (Selected is not { } value) return;
         var client = value.Client;
         EditId = client.Id;
         Name = client.Name;
@@ -111,6 +129,7 @@ public partial class ClientsViewModel : ViewModelBase
         CreditLimit = client.CreditLimit == 0 ? "" : client.CreditLimit.ToString("0.##");
         SelectedDebt = value.Debt;
         foreach (var chip in Chips) chip.LoadFrom(client.Chips.Where(c => c.OperatorId == chip.Operator.Id));
+        IsFormOpen = true;
     }
 
     private async Task InitializeAsync(SettingsService settings)
@@ -165,10 +184,10 @@ public partial class ClientsViewModel : ViewModelBase
         TotalDisplayedDebt = rows.Sum(r => r.Debt);
     }
 
+    /// <summary>Vide le formulaire pour saisir un nouveau client.</summary>
     [RelayCommand]
     private void New()
     {
-        Selected = null;
         EditId = 0;
         Name = Address = City = Phone = CreditLimit = "";
         SelectedDebt = 0;
@@ -213,18 +232,21 @@ public partial class ClientsViewModel : ViewModelBase
 
         if (!await TryAsync(async () => await _service.SaveAsync(client))) return;
         New();
+        IsFormOpen = false;
         await TryAsync(LoadAsync);
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task DeleteAsync()
     {
-        if (EditId == 0 || !Confirm($"Supprimer le client « {Name} » et ses puces ?")) return;
-        if (await TryAsync(() => _service.DeleteAsync(EditId)))
+        if (Selected is not { } row || !Confirm($"Supprimer le client « {row.Name} » et ses puces ?\nCette action est définitive.")) return;
+        if (!await TryAsync(() => _service.DeleteAsync(row.Client.Id))) return;
+        if (EditId == row.Client.Id)
         {
             New();
-            await TryAsync(LoadAsync);
+            IsFormOpen = false;
         }
+        await TryAsync(LoadAsync);
     }
 
     [RelayCommand]

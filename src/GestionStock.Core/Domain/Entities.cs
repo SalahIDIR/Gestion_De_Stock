@@ -87,8 +87,8 @@ public class ClientChip
     /// <summary>1 = numéro principal, 2 = deuxième numéro (facultatif) pour le même opérateur.</summary>
     public int Slot { get; set; } = 1;
 
-    /// <summary>Libellé d'affichage dans les listes déroulantes. Propriété calculée, non mappée par EF.</summary>
-    public string DisplayLabel => Slot == 1 ? PhoneNumber : $"{PhoneNumber} (2ᵉ numéro)";
+    /// <summary>Libellé d'affichage dans les listes déroulantes (opérateur et numéro). Propriété calculée, non mappée par EF.</summary>
+    public string DisplayLabel => (Operator != null ? $"{Operator.Name} · " : "") + (Slot == 1 ? PhoneNumber : $"{PhoneNumber} (2ᵉ numéro)");
 
     public override string ToString() => DisplayLabel;
 }
@@ -98,9 +98,6 @@ public class Product
     public int Id { get; set; }
     public string Name { get; set; } = "";
     public ProductKind Kind { get; set; }
-    /// <summary>Opérateur associé (crédit virtuel uniquement).</summary>
-    public int? OperatorId { get; set; }
-    public Operator? Operator { get; set; }
     /// <summary>Solde courant : montant en DA (crédit virtuel) ou quantité (produit physique). Toujours égal à la somme des mouvements.</summary>
     public decimal StockBalance { get; set; }
     public bool IsActive { get; set; } = true;

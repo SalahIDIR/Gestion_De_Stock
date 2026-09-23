@@ -13,9 +13,10 @@ public record OperationRowView(OperationRow Row)
     public string Type => Row.Type;
     public string Number => Row.Number;
     public string Tiers => Row.Tiers;
-    public string ProductName => Row.ProductName ?? "";
-    public string ProductColorHex => Row.ProductColorHex ?? "#6B7280";
+    public string ProductName => Row.ProductName ?? "";    public string ProductColorHex => Row.ProductColorHex ?? "#6B7280";
     public bool HasProduct => Row.ProductName != null;
+    /// <summary>Couleur du fond de ligne : celle du produit, aucune pour les lignes sans produit (encaissements).</summary>
+    public string? RowColorHex => HasProduct ? ProductColorHex : null;
     public string QuantityText => Row.Quantity?.ToString("N2") ?? "";
     public string RateText => Row.Rate?.ToString("0.####") ?? "";
     public decimal Total => Row.Total;
@@ -99,18 +100,18 @@ public partial class ReportViewModel : ViewModelBase
             .ToList();
 
         Items.Clear();
-        foreach (var r in rows.Where(r => r.IncludeInList)) Items.Add(new OperationRowView(r));
+        foreach (var r in rows) Items.Add(new OperationRowView(r));
 
         TotalAchats = rows.Where(r => r.Type == "Achat").Sum(r => r.Total);
         TotalVentes = rows.Where(r => r.Type == "Vente").Sum(r => r.Total);
-        // Inclut l'argent encaissé au moment d'une vente, même si cette ligne n'apparaît pas dans le tableau.
+        // Inclut l'argent encaissé au moment d'une vente.
         TotalEncaissements = rows.Where(r => r.Type == "Encaissement").Sum(r => r.Total);
     }
 
     [RelayCommand]
     private void Print()
     {
-        PrintHelper.PrintTable("Rapport des opérations",
+        PrintHelper.PrintTable("Historique des opérations",
             ["Date", "Type", "N°", "Tiers", "Produit", "Qté / montant", "Coef. / prix", "Total (DA)"],
             Items.Select(r => new[]
             {

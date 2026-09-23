@@ -30,11 +30,10 @@ public class ReportTests
         Assert.Equal("Grossiste", achat.Tiers);
         Assert.Equal("Flexy", achat.ProductName);
         Assert.Equal(970_000m, achat.Total);
-        Assert.True(achat.IncludeInList);
     }
 
     [Fact]
-    public async Task A_sale_paid_in_full_produces_a_single_vente_row_plus_a_hidden_encaissement_amount()
+    public async Task A_sale_paid_in_full_produces_a_vente_row_followed_by_an_encaissement_row()
     {
         var c = await SetupAsync();
         using var _ = c.Db;
@@ -43,21 +42,18 @@ public class ReportTests
 
         var rows = await c.Reports.GetOperationsAsync();
 
-        // Une seule ligne "Vente" visible : l'encaissement fait à la vente n'est pas dupliqué dans le tableau.
-        var ventes = rows.Where(r => r.Type == "Vente").ToList();
-        var vente = Assert.Single(ventes);
+        var vente = Assert.Single(rows, r => r.Type == "Vente");
         Assert.Equal(10_000m, vente.Total);
-        Assert.True(vente.IncludeInList);
 
-        // Mais son montant encaissé existe bien comme ligne cachée, pour alimenter le total des encaissements.
-        var hidden = Assert.Single(rows, r => r.Type == "Encaissement");
-        Assert.Equal(10_000m, hidden.Total);
-        Assert.False(hidden.IncludeInList);
-        Assert.Equal(vente.Number, hidden.Number);
+        // Le montant encaissé dans le même bon apparaît comme une ligne séparée, avec le même numéro, juste après la vente.
+        var enc = Assert.Single(rows, r => r.Type == "Encaissement");
+        Assert.Equal(10_000m, enc.Total);
+        Assert.Equal(vente.Number, enc.Number);
+        Assert.Equal(rows.IndexOf(vente) + 1, rows.IndexOf(enc));
     }
 
     [Fact]
-    public async Task A_sale_paid_partially_hides_only_the_amount_actually_paid()
+    public async Task A_sale_paid_partially_shows_only_the_amount_actually_paid()
     {
         var c = await SetupAsync();
         using var _ = c.Db;
@@ -84,7 +80,26 @@ public class ReportTests
     }
 
     [Fact]
-    public async Task A_payment_only_bon_still_produces_a_visible_encaissement_row()
+    public async Task Transactions_report_keeps_only_virtual_credit_purchases_and_sales()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        var cards = (await new ProductService(c.Db).ListAsync()).Single(p => p.Kind == ProductKind.Physical);
+        await new PurchaseService(c.Db).CreateAsync(new PurchaseInput(c.Supplier.Id, DateTime.Today,
+            [new PurchaseLineInput(cards.Id, 10m, 480m)], 0m));
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today,
+            [new DeliveryLineInput(c.Flexy.Id, 10_000m, 0.98m), new DeliveryLineInput(cards.Id, 2m, 500m)], 5_000m));
+
+        var rows = await c.Reports.GetVirtualCreditTransactionsAsync();
+
+        Assert.Equal(2, rows.Count); // l'achat et la vente de Flexy ; ni cartes, ni encaissement
+        Assert.All(rows, r => Assert.Equal("Flexy", r.ProductName));
+        Assert.Contains(rows, r => r.Type == "Achat");
+        Assert.Contains(rows, r => r.Type == "Vente");
+    }
+
+    [Fact]
+    public async Task A_payment_only_bon_produces_an_encaissement_row()
     {
         var c = await SetupAsync();
         using var _ = c.Db;
@@ -95,6 +110,5 @@ public class ReportTests
 
         var enc = Assert.Single(rows, r => r.Type == "Encaissement");
         Assert.Equal(3_000m, enc.Total);
-        Assert.True(enc.IncludeInList); // celui-ci doit apparaître dans le tableau, contrairement à l'encaissement caché.
     }
 }

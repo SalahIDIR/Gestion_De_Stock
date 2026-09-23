@@ -232,7 +232,9 @@ public class MasterDataTests
         var flexy = (await products.ListAsync()).Single(p => p.Name == "Flexy");
 
         await Assert.ThrowsAsync<BusinessException>(() => products.SaveAsync(new Product { Name = "Flexy", Kind = ProductKind.Physical }));
-        await Assert.ThrowsAsync<BusinessException>(() => products.SaveAsync(new Product { Name = "Nouveau", Kind = ProductKind.VirtualCredit }));
+        // Un crédit virtuel n'a plus besoin d'opérateur : seul son type compte.
+        var nouveau = await products.SaveAsync(new Product { Name = "Nouveau", Kind = ProductKind.VirtualCredit });
+        Assert.Equal(ProductKind.VirtualCredit, nouveau.Kind);
 
         await products.AdjustStockAsync(flexy.Id, 5_000m, "Comptage");
         Assert.Single(await products.GetMovementsAsync(flexy.Id));

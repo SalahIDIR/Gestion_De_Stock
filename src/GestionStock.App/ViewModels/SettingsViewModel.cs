@@ -28,12 +28,14 @@ public partial class SettingsViewModel : ViewModelBase
 {
     private readonly SettingsService _settings;
     private readonly AuthService _auth;
+    private readonly DemoDataService _demo;
     private readonly User _user;
 
-    public SettingsViewModel(SettingsService settings, AuthService auth, User user)
+    public SettingsViewModel(SettingsService settings, AuthService auth, DemoDataService demo, User user)
     {
         _settings = settings;
         _auth = auth;
+        _demo = demo;
         _user = user;
 
         try { foreach (var port in SerialPort.GetPortNames().Order()) AvailablePorts.Add(port); }
@@ -97,5 +99,27 @@ public partial class SettingsViewModel : ViewModelBase
         if (!ok) return;
         CurrentPassword = NewPassword = ConfirmNewPassword = "";
         Info("Mot de passe modifié.");
+    }
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(GenerateDemoDataCommand))]
+    private bool _isGeneratingDemo;
+
+    private bool CanGenerateDemoData() => !IsGeneratingDemo;
+
+    [RelayCommand(CanExecute = nameof(CanGenerateDemoData))]
+    private async Task GenerateDemoDataAsync()
+    {
+        if (!Confirm("Ajouter 300 clients, 5 fournisseurs et environ 3 mois d'opérations (achats, livraisons, encaissements) " +
+                     "à la base actuelle ?\n\nCes données ne pourront pas être supprimées automatiquement.")) return;
+
+        IsGeneratingDemo = true;
+        DemoDataResult? result = null;
+        try { await TryAsync(async () => result = await _demo.GenerateAsync()); }
+        finally { IsGeneratingDemo = false; }
+
+        if (result != null)
+            Info($"Données de démonstration ajoutées :\n{result.Clients} clients, {result.Suppliers} fournisseurs,\n" +
+                 $"{result.Purchases} bons d'achat, {result.Deliveries} bons de livraison, {result.Encashments} encaissements.");
     }
 }

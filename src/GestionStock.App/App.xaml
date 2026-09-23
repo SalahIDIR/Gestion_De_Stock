@@ -7,6 +7,7 @@
     <Application.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <views:HexToBrushConverter x:Key="HexToBrush"/>
+        <views:HexToRowBackgroundConverter x:Key="HexToRowBackground"/>
         <views:RiskToBrushConverter x:Key="RiskToBrush"/>
         <views:RiskToRowBackgroundConverter x:Key="RiskToRowBackground"/>
         <SolidColorBrush x:Key="Accent" Color="#1F4E79"/>
@@ -122,5 +123,6 @@
         <DataTemplate DataType="{x:Type vm:PurchasesViewModel}"><views:PurchasesView/></DataTemplate>
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}"><views:SettingsView/></DataTemplate>
         <DataTemplate DataType="{x:Type vm:ReportViewModel}"><views:ReportView/></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:TransactionsReportViewModel}"><views:TransactionsReportView/></DataTemplate>
     </Application.Resources>
 </Application>

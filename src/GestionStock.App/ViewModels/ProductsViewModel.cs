@@ -23,12 +23,15 @@ public static class Labels
     };
 }
 
-public record ProductRow(Product Product)
+/// <param name="PurchaseCost">Prix d'achat du dernier bon d'achat (coefficient ou prix unitaire), null si jamais acheté.</param>
+public record ProductRow(Product Product, decimal? PurchaseCost)
 {
     public string Name => Product.Name;
     public string KindLabel => Labels.Kind(Product.Kind);
-    public string OperatorName => Product.Operator?.Name ?? "";
     public decimal StockBalance => Product.StockBalance;
+    /// <summary>Valeur du stock au dernier prix d'achat : quantité (ou montant de crédit) × prix d'achat.</summary>
+    public decimal? StockValue => PurchaseCost is { } cost ? Math.Round(StockBalance * cost, 2, MidpointRounding.AwayFromZero) : null;
+    public string PurchaseCostText => PurchaseCost?.ToString("0.####") ?? "—";
     public string Unit => Product.Kind == ProductKind.VirtualCredit ? "DA" : "unités";
     public string ActiveLabel => Product.IsActive ? "Oui" : "Non";
     public string ColorHex => Product.ColorHex;
@@ -45,18 +48,15 @@ public record MovementRow(StockMovement Movement)
 public partial class ProductsViewModel : ViewModelBase
 {
     private readonly ProductService _service;
-    private readonly SettingsService _settings;
 
-    public ProductsViewModel(ProductService service, SettingsService settings)
+    public ProductsViewModel(ProductService service)
     {
         _service = service;
-        _settings = settings;
         _ = InitializeAsync();
     }
 
     public ObservableCollection<ProductRow> Items { get; } = new();
     public ObservableCollection<MovementRow> Movements { get; } = new();
-    public ObservableCollection<Operator> Operators { get; } = new();
 
     /// <summary>Nuances prêtes à l'emploi pour la couleur du produit dans le rapport.</summary>
     public IReadOnlyList<string> ColorPresets { get; } =
@@ -76,48 +76,85 @@ public partial class ProductsViewModel : ViewModelBase
     ];
 
     private List<Product> _all = new();
+    private Dictionary<int, decimal> _lastCosts = new();
+
+    /// <summary>Valeur totale des produits affichés, au dernier prix d'achat.</summary>
+    [ObservableProperty] private decimal _totalStockValue;
 
     [ObservableProperty] private string _search = "";
     [ObservableProperty] private KindFilterOption? _kindFilter;
-    [ObservableProperty] private ProductRow? _selected;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(EditCommand), nameof(DeleteCommand), nameof(OpenAdjustCommand))]
+    private ProductRow? _selected;
+
+    /// <summary>Fiche produit affichée par-dessus la liste. La fermer sans enregistrer garde la saisie en cours.</summary>
+    [ObservableProperty] private bool _isFormOpen;
+    /// <summary>Fenêtre de correction d'inventaire du produit sélectionné.</summary>
+    [ObservableProperty] private bool _isAdjustOpen;
     [ObservableProperty] private int _editId;
     [ObservableProperty] private string _name = "";
     [ObservableProperty] private ProductKind _kind = ProductKind.VirtualCredit;
-    [ObservableProperty] private Operator? _operator;
     [ObservableProperty] private bool _isActive = true;
     [ObservableProperty] private string _colorHex = "#6B7280";
     [ObservableProperty] private string _countedBalance = "";
     [ObservableProperty] private string _adjustNote = "";
 
-    public bool IsVirtual => Kind == ProductKind.VirtualCredit;
     public string FormTitle => EditId == 0 ? "Nouveau produit" : "Modifier le produit";
 
-    partial void OnKindChanged(ProductKind value) => OnPropertyChanged(nameof(IsVirtual));
     partial void OnEditIdChanged(int value) => OnPropertyChanged(nameof(FormTitle));
     partial void OnSearchChanged(string value) => ApplyFilter();
     partial void OnKindFilterChanged(KindFilterOption? value) => ApplyFilter();
 
+    /// <summary>Titre et stock actuel affichés dans la fenêtre de correction d'inventaire.</summary>
+    public string AdjustTitle => Selected == null ? "" : $"Corriger le stock de « {Selected.Name} »";
+    public string AdjustCurrent => Selected == null ? "" : $"Stock actuel : {Selected.StockBalance:N2} {Selected.Unit}";
+
     partial void OnSelectedChanged(ProductRow? value)
     {
         Movements.Clear();
-        if (value == null) return;
+        OnPropertyChanged(nameof(AdjustTitle));
+        OnPropertyChanged(nameof(AdjustCurrent));
+        if (value != null) _ = LoadMovementsAsync(value.Product.Id);
+    }
+
+    private bool HasSelection() => Selected != null;
+
+    [RelayCommand]
+    private void OpenForm()
+    {
+        if (EditId != 0) New(); // on quitte la modification d'un produit pour en créer un nouveau
+        IsFormOpen = true;
+    }
+
+    [RelayCommand] private void CloseForm() => IsFormOpen = false;
+
+    /// <summary>Charge le produit sélectionné dans la fiche pour le modifier.</summary>
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private void Edit()
+    {
+        if (Selected is not { } value) return;
         var p = value.Product;
         EditId = p.Id;
         Name = p.Name;
         Kind = p.Kind;
-        Operator = Operators.FirstOrDefault(o => o.Id == p.OperatorId);
         IsActive = p.IsActive;
         ColorHex = p.ColorHex;
-        CountedBalance = "";
-        AdjustNote = "";
-        _ = LoadMovementsAsync(p.Id);
+        IsFormOpen = true;
     }
+
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private void OpenAdjust()
+    {
+        CountedBalance = AdjustNote = "";
+        IsAdjustOpen = true;
+    }
+
+    [RelayCommand] private void CloseAdjust() => IsAdjustOpen = false;
 
     private async Task InitializeAsync()
     {
         await TryAsync(async () =>
         {
-            foreach (var op in await _settings.GetOperatorsAsync()) Operators.Add(op);
             KindFilter = KindFilters[0];
             await LoadAsync();
         });
@@ -126,6 +163,7 @@ public partial class ProductsViewModel : ViewModelBase
     private async Task LoadAsync()
     {
         _all = await _service.ListAsync(includeInactive: true);
+        _lastCosts = await _service.GetLastPurchaseCostsAsync();
         ApplyFilter();
     }
 
@@ -135,10 +173,12 @@ public partial class ProductsViewModel : ViewModelBase
         var rows = _all
             .Where(p => term.Length == 0 || p.Name.Contains(term, StringComparison.CurrentCultureIgnoreCase))
             .Where(p => KindFilter?.Kind == null || p.Kind == KindFilter.Kind)
-            .Select(p => new ProductRow(p));
+            .Select(p => new ProductRow(p, _lastCosts.TryGetValue(p.Id, out var cost) ? cost : null))
+            .ToList();
 
         Items.Clear();
         foreach (var r in rows) Items.Add(r);
+        TotalStockValue = rows.Sum(r => r.StockValue ?? 0m);
     }
 
     private async Task LoadMovementsAsync(int productId)
@@ -152,55 +192,64 @@ public partial class ProductsViewModel : ViewModelBase
         });
     }
 
+    /// <summary>Vide la fiche pour saisir un nouveau produit.</summary>
     [RelayCommand]
     private void New()
     {
-        Selected = null;
-        Movements.Clear();
         EditId = 0;
         Name = "";
         Kind = ProductKind.VirtualCredit;
-        Operator = null;
         IsActive = true;
         ColorHex = "#6B7280";
-        CountedBalance = AdjustNote = "";
     }
 
     [RelayCommand]
     private async Task SaveAsync()
     {
-        var ok = await TryAsync(async () => await _service.SaveAsync(new Product
+        var id = EditId;
+        Product? saved = null;
+        var ok = await TryAsync(async () => saved = await _service.SaveAsync(new Product
         {
-            Id = EditId, Name = Name, Kind = Kind, OperatorId = Operator?.Id, IsActive = IsActive, ColorHex = ColorHex,
+            Id = id, Name = Name, Kind = Kind, IsActive = IsActive, ColorHex = ColorHex,
         }));
-        if (!ok) return;
+        if (!ok || saved == null) return;
         New();
-        await TryAsync(LoadAsync);
+        IsFormOpen = false;
+        await ReloadAndSelectAsync(saved.Id);
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task DeleteAsync()
     {
-        if (EditId == 0 || !Confirm($"Supprimer le produit « {Name} » ?")) return;
-        if (await TryAsync(() => _service.DeleteAsync(EditId)))
+        if (Selected is not { } row || !Confirm($"Supprimer le produit « {row.Name} » ?\nCette action est définitive.")) return;
+        if (!await TryAsync(() => _service.DeleteAsync(row.Product.Id))) return;
+        if (EditId == row.Product.Id)
         {
             New();
-            await TryAsync(LoadAsync);
+            IsFormOpen = false;
         }
+        await TryAsync(LoadAsync);
     }
 
     [RelayCommand]
     private async Task AdjustAsync()
     {
-        if (EditId == 0) { Info("Sélectionnez d'abord un produit."); return; }
+        if (Selected is not { } row) return;
         var counted = ParseDecimal(CountedBalance);
         if (counted == null) { Info("Saisissez le solde compté (un nombre)."); return; }
-        if (!Confirm($"Fixer le solde de « {Name} » à {counted:N2} ?\nUn mouvement de correction sera enregistré.")) return;
+        if (!Confirm($"Fixer le solde de « {row.Name} » à {counted:N2} ?\nUn mouvement de correction sera enregistré.")) return;
 
-        var id = EditId;
+        var id = row.Product.Id;
         if (!await TryAsync(() => _service.AdjustStockAsync(id, counted.Value, AdjustNote))) return;
+        IsAdjustOpen = false;
+        await ReloadAndSelectAsync(id);
+    }
+
+    /// <summary>Recharge la liste et resélectionne le produit, pour garder ses mouvements affichés.</summary>
+    private async Task ReloadAndSelectAsync(int productId)
+    {
         await TryAsync(LoadAsync);
-        Selected = Items.FirstOrDefault(r => r.Product.Id == id);
+        Selected = Items.FirstOrDefault(r => r.Product.Id == productId);
     }
 
     [RelayCommand]
@@ -213,7 +262,10 @@ public partial class ProductsViewModel : ViewModelBase
     private void Print()
     {
         PrintHelper.PrintTable("Produits & stock",
-            ["Produit", "Type", "Opérateur", "Stock", "Unité", "Actif"],
-            Items.Select(r => new[] { r.Name, r.KindLabel, r.OperatorName, r.StockBalance.ToString("N2"), r.Unit, r.ActiveLabel }).ToList());
+            ["Produit", "Type", "Stock", "Unité", "Prix d'achat", "Total (DA)", "Actif"],
+            Items.Select(r => new[]
+            {
+                r.Name, r.KindLabel, r.StockBalance.ToString("N2"), r.Unit, r.PurchaseCostText, r.StockValue?.ToString("N2") ?? "—", r.ActiveLabel,
+            }).ToList());
     }
 }

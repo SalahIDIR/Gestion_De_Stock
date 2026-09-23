@@ -17,7 +17,7 @@ public class ProductService
     public async Task<List<Product>> ListAsync(bool includeInactive = false)
     {
         await using var db = await _factory.CreateDbContextAsync();
-        var query = db.Products.AsNoTracking().Include(p => p.Operator).AsQueryable();
+        var query = db.Products.AsNoTracking().AsQueryable();
         if (!includeInactive) query = query.Where(p => p.IsActive);
         return await query.OrderBy(p => p.Kind).ThenBy(p => p.Name).ToListAsync();
     }
@@ -26,8 +26,6 @@ public class ProductService
     {
         var name = input.Name.Trim();
         if (name.Length == 0) throw new BusinessException("Le nom du produit est obligatoire.");
-        if (input.Kind == ProductKind.VirtualCredit && input.OperatorId == null)
-            throw new BusinessException("Un crédit virtuel doit être rattaché à un opérateur.");
         var colorHex = string.IsNullOrWhiteSpace(input.ColorHex) ? null : input.ColorHex.Trim();
         if (colorHex != null && !System.Text.RegularExpressions.Regex.IsMatch(colorHex, "^#[0-9A-Fa-f]{6}$"))
             throw new BusinessException("La couleur doit être au format #RRGGBB.");
@@ -53,7 +51,6 @@ public class ProductService
         }
 
         entity.Name = name;
-        entity.OperatorId = input.Kind == ProductKind.VirtualCredit ? input.OperatorId : null;
         entity.IsActive = input.IsActive;
         await db.SaveChangesAsync();
         return entity;
@@ -91,6 +88,22 @@ public class ProductService
         });
         product.StockBalance = countedBalance;
         await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Prix d'achat de chaque produit sur son bon d'achat le plus récent (coefficient pour le crédit virtuel,
+    /// prix unitaire pour un produit physique), quel que soit le fournisseur. Clé = ProductId ; absent si jamais acheté.
+    /// </summary>
+    public async Task<Dictionary<int, decimal>> GetLastPurchaseCostsAsync()
+    {
+        await using var db = await _factory.CreateDbContextAsync();
+        var lines = await db.PurchaseLines.AsNoTracking()
+            .Join(db.PurchaseOrders, l => l.PurchaseOrderId, o => o.Id,
+                (l, o) => new { l.ProductId, l.UnitCost, o.Date, OrderId = o.Id, LineId = l.Id })
+            .ToListAsync();
+        return lines.GroupBy(l => l.ProductId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(l => l.Date).ThenByDescending(l => l.OrderId)
+                .ThenByDescending(l => l.LineId).First().UnitCost);
     }
 
     public async Task<List<StockMovement>> GetMovementsAsync(int productId)

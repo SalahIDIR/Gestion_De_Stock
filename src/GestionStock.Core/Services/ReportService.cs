@@ -1,4 +1,5 @@
 using GestionStock.Core.Data;
+using GestionStock.Core.Domain;
 using Microsoft.EntityFrameworkCore;
 
 namespace GestionStock.Core.Services;
@@ -14,11 +15,8 @@ public record OperationRow(
     decimal? Quantity,
     decimal? Rate,
     decimal Total,
-    /// <summary>
-    /// Faux pour le montant encaissé au moment d'une vente : il compte dans le total des encaissements
-    /// mais n'apparaît pas comme une ligne séparée, la vente étant déjà listée pour son montant facturé.
-    /// </summary>
-    bool IncludeInList = true);
+    /// <summary>Type du produit de la ligne (null pour un encaissement).</summary>
+    ProductKind? ProductKind = null);
 
 /// <summary>Rassemble achats, ventes et encaissements en un flux unique pour le rapport et l'audit.</summary>
 public class ReportService
@@ -37,7 +35,7 @@ public class ReportService
         foreach (var order in purchases)
             foreach (var line in order.Lines)
                 rows.Add(new OperationRow(order.Date, "Achat", order.Number, order.Supplier?.CompanyName ?? "",
-                    line.Product?.Name, line.Product?.ColorHex, line.Quantity, line.UnitCost, line.LineTotal));
+                    line.Product?.Name, line.Product?.ColorHex, line.Quantity, line.UnitCost, line.LineTotal, line.Product?.Kind));
 
         var deliveries = await db.DeliveryNotes.AsNoTracking()
             .Include(n => n.Client).Include(n => n.Lines).ThenInclude(l => l.Product).ToListAsync();
@@ -52,13 +50,13 @@ public class ReportService
             {
                 foreach (var line in note.Lines)
                     rows.Add(new OperationRow(note.Date, "Vente", note.Number, note.Client?.Name ?? "",
-                        line.Product?.Name, line.Product?.ColorHex, line.Quantity, line.UnitPrice, line.LineTotal));
+                        line.Product?.Name, line.Product?.ColorHex, line.Quantity, line.UnitPrice, line.LineTotal, line.Product?.Kind));
 
                 // L'argent encaissé en même temps qu'une vente est de l'argent réellement entré en caisse :
-                // il doit compter dans le total des encaissements, sans dupliquer la vente dans le tableau.
+                // il apparaît comme une ligne « Encaissement » juste après les lignes de la vente, avec le même numéro.
                 if (note.AmountPaid > 0)
                     rows.Add(new OperationRow(note.Date, "Encaissement", note.Number, note.Client?.Name ?? "",
-                        null, null, null, null, note.AmountPaid, IncludeInList: false));
+                        null, null, null, null, note.AmountPaid));
             }
         }
 
@@ -69,4 +67,8 @@ public class ReportService
 
         return rows.OrderByDescending(r => r.Date).ToList();
     }
+
+    /// <summary>Achats et ventes de crédit virtuel uniquement (Flexy, Storm, Erselli…), sans encaissements ni produits physiques.</summary>
+    public async Task<List<OperationRow>> GetVirtualCreditTransactionsAsync()
+        => (await GetOperationsAsync()).Where(r => r.ProductKind == ProductKind.VirtualCredit).ToList();
 }

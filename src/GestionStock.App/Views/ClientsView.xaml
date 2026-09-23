@@ -10,12 +10,6 @@
         </Style>
     </UserControl.Resources>
     <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="24"/>
-            <ColumnDefinition Width="380"/>
-        </Grid.ColumnDefinitions>
-
         <DockPanel>
             <DockPanel DockPanel.Dock="Top">
                 <TextBlock Text="Liste des clients" Style="{StaticResource Title}"/>
@@ -49,7 +43,15 @@
                     <TextBlock Text="● orange = pas encaissé depuis 7 jours   ● rouge = 10 jours ou plus" Style="{StaticResource FieldLabel}"/>
                 </DockPanel>
             </StackPanel>
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
+                <Button Content="+ Nouveau client" Command="{Binding OpenFormCommand}" Style="{StaticResource PrimaryButton}"/>
+                <Button Content="Modifier le client" Command="{Binding EditCommand}"/>
+                <Button Content="Supprimer le client" Command="{Binding DeleteCommand}" Style="{StaticResource DangerButton}"/>
+            </StackPanel>
             <DataGrid ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}">
+                <DataGrid.InputBindings>
+                    <MouseBinding Gesture="LeftDoubleClick" Command="{Binding EditCommand}"/>
+                </DataGrid.InputBindings>
                 <DataGrid.Columns>
                     <DataGridTemplateColumn Header="" Width="30">
                         <DataGridTemplateColumn.CellTemplate>
@@ -93,63 +95,74 @@
             </DataGrid>
         </DockPanel>
 
-        <Border Grid.Column="2" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="18">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <StackPanel>
-                    <TextBlock Text="{Binding FormTitle}" Style="{StaticResource Section}" Margin="0,0,0,12"/>
-
-                    <TextBlock Text="Nom *" Style="{StaticResource FieldLabel}"/>
-                    <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"/>
-                    <TextBlock Text="Adresse" Style="{StaticResource FieldLabel}"/>
-                    <TextBox Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}"/>
-                    <TextBlock Text="Ville" Style="{StaticResource FieldLabel}"/>
-                    <TextBox Text="{Binding City, UpdateSourceTrigger=PropertyChanged}"/>
-                    <TextBlock Text="Téléphone" Style="{StaticResource FieldLabel}"/>
-                    <TextBox Text="{Binding Phone, UpdateSourceTrigger=PropertyChanged}"/>
-                    <TextBlock Text="Plafond de dette en DA (vide = aucun plafond)" Style="{StaticResource FieldLabel}"/>
-                    <TextBox Text="{Binding CreditLimit, UpdateSourceTrigger=PropertyChanged}"/>
-
-                    <TextBlock Text="Puces de réception du crédit" Style="{StaticResource Section}"/>
-                    <ItemsControl ItemsSource="{Binding Chips}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate DataType="{x:Type vm:ChipEditor}">
-                                <StackPanel Margin="0,0,0,6">
-                                    <TextBlock Text="{Binding OperatorName}" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox Text="{Binding Number1, UpdateSourceTrigger=PropertyChanged}"/>
-                                    <StackPanel Visibility="{Binding ShowSecond, Converter={StaticResource BoolToVis}}">
-                                        <DockPanel>
-                                            <Button DockPanel.Dock="Right" Content="✕" Padding="8,4" Margin="4,0,0,0"
-                                                    Command="{Binding DataContext.RemoveSecondNumberCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                    CommandParameter="{Binding}" ToolTip="Retirer le 2ᵉ numéro"/>
-                                            <TextBox DockPanel.Dock="Left" Text="{Binding Number2, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"/>
-                                        </DockPanel>
-                                    </StackPanel>
-                                    <Button Content="+ Ajouter un 2ᵉ numéro" HorizontalAlignment="Left" Padding="6,2" Margin="0,-4,0,4"
-                                            Visibility="{Binding ShowAddButton, Converter={StaticResource BoolToVis}}"
-                                            Command="{Binding DataContext.AddSecondNumberCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="{Binding}"/>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+        <!-- Fiche client : fenêtre par-dessus la liste, ouverte par « + Nouveau client » ou « Modifier le client » -->
+        <Grid Visibility="{Binding IsFormOpen, Converter={StaticResource BoolToVis}}">
+            <Border Background="#66101828" Margin="-24"/>
+            <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="18"
+                    Width="460" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,8">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="24" ShadowDepth="4" Opacity="0.25"/>
+                </Border.Effect>
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                        <Button DockPanel.Dock="Right" Content="✕ Fermer" Command="{Binding CloseFormCommand}" Margin="0" Padding="10,4"
+                                ToolTip="Fermer sans enregistrer (la saisie est conservée)"/>
+                        <TextBlock Text="{Binding FormTitle}" Style="{StaticResource Title}" Margin="0"/>
+                    </DockPanel>
+                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
                         <Button Content="Enregistrer" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButton}"/>
-                        <Button Content="Nouveau" Command="{Binding NewCommand}"/>
-                        <Button Content="Supprimer" Command="{Binding DeleteCommand}" Style="{StaticResource DangerButton}"/>
+                        <Button Content="Annuler" Command="{Binding CloseFormCommand}"/>
                     </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock Text="Nom *" Style="{StaticResource FieldLabel}"/>
+                            <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Adresse" Style="{StaticResource FieldLabel}"/>
+                            <TextBox Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Ville" Style="{StaticResource FieldLabel}"/>
+                            <TextBox Text="{Binding City, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Téléphone" Style="{StaticResource FieldLabel}"/>
+                            <TextBox Text="{Binding Phone, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Plafond de dette en DA (vide = aucun plafond)" Style="{StaticResource FieldLabel}"/>
+                            <TextBox Text="{Binding CreditLimit, UpdateSourceTrigger=PropertyChanged}"/>
 
-                    <StackPanel Visibility="{Binding HasSelection, Converter={StaticResource BoolToVis}}">
-                        <Separator Margin="0,20,0,4"/>
-                        <TextBlock Text="Dette" Style="{StaticResource Section}"/>
-                        <TextBlock Margin="0,0,0,8" TextWrapping="Wrap">
-                            <Run Text="Dette actuelle : "/><Run Text="{Binding SelectedDebt, StringFormat=N2, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=" DA"/>
-                            <LineBreak/>
-                            <Run Text="Pour encaisser un paiement, créez un « bon d'encaissement » depuis la page Bons de livraison." FontSize="11" Foreground="Gray"/>
-                        </TextBlock>
-                    </StackPanel>
-                </StackPanel>
-            </ScrollViewer>
-        </Border>
+                            <TextBlock Text="Puces de réception du crédit" Style="{StaticResource Section}"/>
+                            <ItemsControl ItemsSource="{Binding Chips}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ChipEditor}">
+                                        <StackPanel Margin="0,0,0,6">
+                                            <TextBlock Text="{Binding OperatorName}" Style="{StaticResource FieldLabel}"/>
+                                            <TextBox Text="{Binding Number1, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <StackPanel Visibility="{Binding ShowSecond, Converter={StaticResource BoolToVis}}">
+                                                <DockPanel>
+                                                    <Button DockPanel.Dock="Right" Content="✕" Padding="8,4" Margin="4,0,0,0"
+                                                            Command="{Binding DataContext.RemoveSecondNumberCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}" ToolTip="Retirer le 2ᵉ numéro"/>
+                                                    <TextBox DockPanel.Dock="Left" Text="{Binding Number2, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"/>
+                                                </DockPanel>
+                                            </StackPanel>
+                                            <Button Content="+ Ajouter un 2ᵉ numéro" HorizontalAlignment="Left" Padding="6,2" Margin="0,-4,0,4"
+                                                    Visibility="{Binding ShowAddButton, Converter={StaticResource BoolToVis}}"
+                                                    Command="{Binding DataContext.AddSecondNumberCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <StackPanel Visibility="{Binding IsEditing, Converter={StaticResource BoolToVis}}">
+                                <Separator Margin="0,12,0,4"/>
+                                <TextBlock Text="Dette" Style="{StaticResource Section}"/>
+                                <TextBlock TextWrapping="Wrap">
+                                    <Run Text="Dette actuelle : "/><Run Text="{Binding SelectedDebt, StringFormat=N2, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=" DA"/>
+                                    <LineBreak/>
+                                    <Run Text="Pour encaisser un paiement, créez un « bon d'encaissement » depuis la page Bons de livraison." FontSize="11" Foreground="Gray"/>
+                                </TextBlock>
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>

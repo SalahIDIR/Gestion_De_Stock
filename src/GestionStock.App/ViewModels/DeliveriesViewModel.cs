@@ -20,6 +20,20 @@ public partial class DeliveryLineEditor : ObservableObject
     public decimal? Quantity => ViewModelBase.ParseDecimal(QuantityText);
     public decimal? UnitPrice => ViewModelBase.ParseDecimal(UnitPriceText);
 
+    private bool _settingAutoPrice;
+
+    /// <summary>Vrai si le coefficient a été proposé automatiquement (tarif du client) et pas saisi à la main.</summary>
+    public bool IsPriceAutoFilled { get; private set; }
+
+    /// <summary>Remplit le coefficient avec le tarif proposé ; il sera remplacé si le client ou le produit change.</summary>
+    public void SetAutoPrice(string text)
+    {
+        _settingAutoPrice = true;
+        UnitPriceText = text;
+        _settingAutoPrice = false;
+        IsPriceAutoFilled = text.Length > 0;
+    }
+
     /// <summary>Montant facturé, ou null tant que la saisie est incomplète.</summary>
     public decimal? Total => Quantity is > 0 && UnitPrice is > 0
         ? DeliveryService.ComputeLineTotal(Quantity.Value, UnitPrice.Value)
@@ -41,7 +55,12 @@ public partial class DeliveryLineEditor : ObservableObject
     }
 
     partial void OnQuantityTextChanged(string value) => OnPropertyChanged(nameof(Total));
-    partial void OnUnitPriceTextChanged(string value) => OnPropertyChanged(nameof(Total));
+
+    partial void OnUnitPriceTextChanged(string value)
+    {
+        if (!_settingAutoPrice) IsPriceAutoFilled = false; // saisi à la main : on n'y touche plus
+        OnPropertyChanged(nameof(Total));
+    }
 }
 
 public record DeliveryRow(DeliveryNote Note)
@@ -50,18 +69,18 @@ public record DeliveryRow(DeliveryNote Note)
     public DateTime Date => Note.Date;
     public string ClientName => Note.Client?.Name ?? "";
     public bool IsPaymentOnly => Note.Lines.Count == 0;
-    public string TypeLabel => IsPaymentOnly ? "Encaissement" : "Vente";
     public decimal Total => Note.Total;
     public decimal Remaining => Note.Remaining;
 }
 
-public record DeliveryLineRow(DeliveryLine Line)
+/// <summary>Ligne du détail d'un bon : un produit livré, ou le montant encaissé (<see cref="IsPayment"/>).</summary>
+public record DeliveryLineRow(string ProductName, decimal? Quantity, decimal? UnitPrice, decimal LineTotal,
+    string? RecipientPhone, bool IsPayment = false)
 {
-    public string ProductName => Line.Product?.Name ?? "";
-    public decimal Quantity => Line.Quantity;
-    public decimal UnitPrice => Line.UnitPrice;
-    public decimal LineTotal => Line.LineTotal;
-    public string? RecipientPhone => Line.RecipientPhone;
+    public static DeliveryLineRow From(DeliveryLine line) => new(line.Product?.Name ?? "", line.Quantity, line.UnitPrice,
+        line.LineTotal, line.RecipientPhone);
+
+    public static DeliveryLineRow Payment(decimal amount) => new("Encaissement", null, null, amount, null, IsPayment: true);
 }
 
 public partial class DeliveriesViewModel : ViewModelBase
@@ -75,6 +94,8 @@ public partial class DeliveriesViewModel : ViewModelBase
     private List<Client> _allClients = new();
     private List<DeliveryNote> _allNotes = new();
     private Dictionary<int, decimal> _lastPrices = new();
+    /// <summary>Puce utilisée sur le dernier bon du client, par produit.</summary>
+    private Dictionary<int, string> _lastRecipients = new();
     private bool _rebuildingChoices;
 
     public DeliveriesViewModel(DeliveryService deliveries, ClientService clients, ProductService products)
@@ -114,18 +135,27 @@ public partial class DeliveriesViewModel : ViewModelBase
     [ObservableProperty] private DateTime? _historyTo;
     [ObservableProperty] private string _historyAmountMin = "";
     [ObservableProperty] private string _historyAmountMax = "";
-    [ObservableProperty] private DeliveryRow? _selectedDelivery;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(EditCommand), nameof(DeleteCommand))]
+    private DeliveryRow? _selectedDelivery;
+
+    /// <summary>Bon en cours de modification dans le formulaire, ou null pour un nouveau bon.</summary>
+    private DeliveryNote? _editingNote;
+
+    public string FormTitle => _editingNote == null ? "Nouveau bon" : $"Modifier le bon {_editingNote.Number}";
+    public string SaveLabel => _editingNote == null ? "Enregistrer le bon" : "Enregistrer les modifications";
+    public bool IsEditing => _editingNote != null;
 
     [ObservableProperty] private string _clientSearch = "";
     [ObservableProperty] private Client? _client;
-    [ObservableProperty] private DateTime _deliveryDate = DateTime.Today;
     [ObservableProperty] private DeliveryLineEditor? _selectedLine;
     [ObservableProperty] private string _paidText = "";
     [ObservableProperty] private decimal _clientDebt;
 
     public decimal Total => Lines.Sum(l => l.Total ?? 0m);
     public decimal Remaining => Total - (ParseDecimal(PaidText) ?? 0m);
-    public decimal NewDebt => ClientDebt + Remaining;
+    /// <summary>Dette du client après ce bon. En modification, l'ancienne version du bon est d'abord retirée de sa dette.</summary>
+    public decimal NewDebt => ClientDebt - (_editingNote != null && _editingNote.ClientId == Client?.Id ? _editingNote.Remaining : 0m) + Remaining;
     public bool OverLimit => Client is { CreditLimit: > 0 } c && NewDebt > c.CreditLimit;
 
     public string ClientChoicesHint => _allClients.Count > MaxClientChoices && ClientSearch.Trim().Length == 0
@@ -166,7 +196,8 @@ public partial class DeliveriesViewModel : ViewModelBase
     {
         SelectedDetails.Clear();
         if (value == null) return;
-        foreach (var l in value.Note.Lines) SelectedDetails.Add(new DeliveryLineRow(l));
+        foreach (var l in value.Note.Lines) SelectedDetails.Add(DeliveryLineRow.From(l));
+        if (value.Note.AmountPaid > 0) SelectedDetails.Add(DeliveryLineRow.Payment(value.Note.AmountPaid));
     }
 
     private void RefreshTotals()
@@ -183,6 +214,8 @@ public partial class DeliveriesViewModel : ViewModelBase
         {
             ClientDebt = 0;
             _lastPrices = new();
+            _lastRecipients = new();
+            foreach (var line in Lines) PrefillPrice(line);
             OnPropertyChanged(nameof(ClientInfo));
             RefreshTotals();
             return;
@@ -192,31 +225,49 @@ public partial class DeliveriesViewModel : ViewModelBase
         {
             var debt = await _deliveries.GetClientDebtAsync(client.Id);
             var prices = await _deliveries.GetLastPricesAsync(client.Id);
+            var recipients = await _deliveries.GetLastRecipientsAsync(client.Id);
             if (Client?.Id != client.Id) return; // l'utilisateur a changé de client entre-temps
             ClientDebt = debt;
             _lastPrices = prices;
-            foreach (var line in Lines) PrefillPrice(line);
+            _lastRecipients = recipients;
+            foreach (var line in Lines)
+            {
+                PrefillPrice(line);
+                PopulateChips(line);
+            }
             OnPropertyChanged(nameof(ClientInfo));
             RefreshTotals();
         });
     }
 
-    /// <summary>Propose le tarif courant de ce client pour ce produit, si la case est vide.</summary>
+    /// <summary>
+    /// Propose le dernier coefficient de ce client pour ce produit. Un coefficient saisi à la main n'est jamais remplacé ;
+    /// un coefficient proposé automatiquement est remplacé si le client ou le produit change.
+    /// </summary>
     private void PrefillPrice(DeliveryLineEditor line)
     {
-        if (line.Product == null || !string.IsNullOrWhiteSpace(line.UnitPriceText)) return;
-        if (_lastPrices.TryGetValue(line.Product.Id, out var price))
-            line.UnitPriceText = price.ToString("0.####");
+        if (!string.IsNullOrWhiteSpace(line.UnitPriceText) && !line.IsPriceAutoFilled) return;
+        line.SetAutoPrice(line.Product != null && _lastPrices.TryGetValue(line.Product.Id, out var price)
+            ? price.ToString("0.####")
+            : "");
     }
 
-    /// <summary>Remplit le choix de puce destinataire selon l'opérateur du produit et les puces du client sélectionné.</summary>
+    /// <summary>
+    /// Propose toutes les puces du client. Garde la puce déjà choisie si elle existe encore ; sinon présélectionne celle
+    /// utilisée la dernière fois pour ce produit, ou la seule puce du client s'il n'en a qu'une.
+    /// </summary>
     private void PopulateChips(DeliveryLineEditor line)
     {
+        var keep = line.SelectedChip?.PhoneNumber;
         line.AvailableChips.Clear();
-        if (Client != null && line.Product?.OperatorId is int operatorId)
-            foreach (var chip in Client.Chips.Where(c => c.OperatorId == operatorId).OrderBy(c => c.Slot))
+        if (Client != null)
+            foreach (var chip in Client.Chips.OrderBy(c => c.Operator?.Name).ThenBy(c => c.Slot))
                 line.AvailableChips.Add(chip);
-        line.SelectedChip = line.AvailableChips.FirstOrDefault();
+
+        var lastUsed = line.Product != null && _lastRecipients.TryGetValue(line.Product.Id, out var phone) ? phone : null;
+        line.SelectedChip = line.AvailableChips.FirstOrDefault(c => c.PhoneNumber == keep)
+                            ?? line.AvailableChips.FirstOrDefault(c => c.PhoneNumber == lastUsed)
+                            ?? (line.AvailableChips.Count == 1 ? line.AvailableChips[0] : null);
     }
 
     private async Task InitializeAsync()
@@ -295,19 +346,144 @@ public partial class DeliveriesViewModel : ViewModelBase
 
     private void ResetForm()
     {
+        SetEditingNote(null);
         Client = null;
         ClientSearch = "";
-        DeliveryDate = DateTime.Today;
         PaidText = "";
         Lines.Clear();
         AddLine();
     }
 
+    private void SetEditingNote(DeliveryNote? note)
+    {
+        _editingNote = note;
+        OnPropertyChanged(nameof(FormTitle));
+        OnPropertyChanged(nameof(SaveLabel));
+        OnPropertyChanged(nameof(IsEditing));
+        RefreshTotals();
+    }
+
+    private bool HasDraft => Client != null || !string.IsNullOrWhiteSpace(PaidText) || Lines.Any(l => l.Product != null
+        || !string.IsNullOrWhiteSpace(l.QuantityText) || !string.IsNullOrWhiteSpace(l.UnitPriceText));
+
     [RelayCommand]
     private void Reset() => ResetForm();
 
+    /// <summary>Formulaire du bon affiché par-dessus la liste. Le fermer sans enregistrer garde la saisie en cours.</summary>
+    [ObservableProperty] private bool _isFormOpen;
+
     [RelayCommand]
-    private async Task SaveAsync()
+    private void OpenForm()
+    {
+        if (_editingNote != null) ResetForm(); // on quitte la modification d'un bon pour en créer un nouveau
+        IsFormOpen = true;
+    }
+
+    [RelayCommand] private void CloseForm() => IsFormOpen = false;
+
+    private bool HasSelection() => SelectedDelivery != null;
+
+    /// <summary>Charge le bon sélectionné dans le formulaire pour le modifier (il garde son numéro et sa date).</summary>
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private void Edit()
+    {
+        if (SelectedDelivery == null) return;
+        var note = SelectedDelivery.Note;
+        if (_editingNote == null && HasDraft
+            && !Confirm("Un nouveau bon est en cours de saisie. L'abandonner pour modifier le bon sélectionné ?")) return;
+
+        var inactive = note.Lines.FirstOrDefault(l => Products.All(p => p.Id != l.ProductId));
+        if (inactive != null)
+        {
+            Info($"Le produit « {inactive.Product?.Name} » est désactivé : réactivez-le pour pouvoir modifier ce bon.");
+            return;
+        }
+
+        ResetForm();
+        SetEditingNote(note);
+        Client = _allClients.FirstOrDefault(c => c.Id == note.ClientId);
+        RebuildClientChoices();
+        Lines.Clear();
+        foreach (var l in note.Lines)
+        {
+            var editor = new DeliveryLineEditor();
+            Lines.Add(editor);
+            editor.Product = Products.First(p => p.Id == l.ProductId);
+            editor.QuantityText = l.Quantity.ToString("0.##");
+            editor.UnitPriceText = l.UnitPrice.ToString("0.####");
+            editor.SelectedChip = editor.AvailableChips.FirstOrDefault(ch => ch.PhoneNumber == l.RecipientPhone) ?? editor.SelectedChip;
+        }
+        if (Lines.Count == 0) AddLine();
+        PaidText = note.AmountPaid > 0 ? note.AmountPaid.ToString("0.##") : "";
+        IsFormOpen = true;
+    }
+
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private async Task DeleteAsync()
+    {
+        if (SelectedDelivery == null) return;
+        var note = SelectedDelivery.Note;
+        var isPaymentOnly = note.Lines.Count == 0;
+        var question = isPaymentOnly
+            ? $"Supprimer le bon d'encaissement {note.Number} ({note.AmountPaid:N2} DA) de « {note.Client?.Name} » ?\n\n" +
+              "La dette du client sera augmentée de ce montant."
+            : $"Supprimer le bon de livraison {note.Number} ({note.Total:N2} DA) de « {note.Client?.Name} » ?\n\n" +
+              "Les produits seront remis en stock et la dette du client corrigée.";
+        if (!Confirm(question + "\nCette action est définitive.")) return;
+
+        if (!await TryAsync(() => _deliveries.DeleteAsync(note.Id))) return;
+        if (_editingNote?.Id == note.Id)
+        {
+            ResetForm();
+            IsFormOpen = false;
+        }
+        await TryAsync(ReloadProductsAndHistoryAsync);
+        Info($"Bon {note.Number} supprimé.");
+    }
+
+    [RelayCommand]
+    private Task SaveAsync() => SaveCoreAsync(print: false);
+
+    [RelayCommand]
+    private Task SaveAndPrintAsync() => SaveCoreAsync(print: true);
+
+    /// <summary>Imprime le bon en cours de modification tel qu'il est enregistré (sans les changements non enregistrés).</summary>
+    [RelayCommand]
+    private async Task PrintEditingAsync()
+    {
+        if (_editingNote != null) await PrintNoteAsync(_editingNote.Id);
+    }
+
+    private async Task PrintNoteAsync(int noteId)
+    {
+        DeliveryNote? note = null;
+        decimal debt = 0;
+        if (!await TryAsync(async () =>
+            {
+                note = await _deliveries.GetAsync(noteId);
+                if (note != null) debt = await _deliveries.GetClientDebtAsync(note.ClientId);
+            }) || note == null) return;
+
+        var client = note.Client;
+        var isPaymentOnly = note.Lines.Count == 0;
+        var totals = new List<(string, string)>();
+        if (!isPaymentOnly) totals.Add(("Total du bon", $"{note.Total:N2} DA"));
+        totals.Add(("Montant encaissé", $"{note.AmountPaid:N2} DA"));
+        if (!isPaymentOnly) totals.Add(("Reste à payer sur ce bon", $"{note.Remaining:N2} DA"));
+        totals.Add(("Dette totale du client à ce jour", $"{debt:N2} DA"));
+
+        PrintHelper.PrintBon(isPaymentOnly ? "Bon d'encaissement" : "Bon de livraison", note.Number, note.Date,
+            [("Client", client?.Name ?? ""), ("Adresse", string.Join(", ", new[] { client?.Address, client?.City }.Where(s => !string.IsNullOrWhiteSpace(s)))),
+             ("Téléphone", client?.Phone ?? "")],
+            ["Produit", "Montant / qté", "Coef. / prix", "Puce", "Facturé (DA)"],
+            note.Lines.Select(l => new[]
+            {
+                l.Product?.Name ?? "", l.Quantity.ToString("N2"), l.UnitPrice.ToString("0.####"), l.RecipientPhone ?? "", l.LineTotal.ToString("N2"),
+            }).ToList(),
+            totals);
+    }
+
+    private async Task SaveCoreAsync(bool print)
     {
         if (Client == null) { Info("Sélectionnez un client."); return; }
 
@@ -339,25 +515,33 @@ public partial class DeliveriesViewModel : ViewModelBase
             }
         }
 
+        var editing = _editingNote;
         DeliveryNote? saved = null;
-        var ok = await TryAsync(async () =>
-            saved = await _deliveries.CreateAsync(new DeliveryInput(Client.Id, DeliveryDate, lines, paid.Value)));
+        var ok = await TryAsync(async () => saved = editing == null
+            ? await _deliveries.CreateAsync(new DeliveryInput(Client.Id, DateTime.Now, lines, paid.Value))
+            : await _deliveries.UpdateAsync(editing.Id, new DeliveryInput(Client.Id, editing.Date, lines, paid.Value)));
         if (!ok || saved == null) return;
 
         var clientName = Client.Name;
         ResetForm();
+        IsFormOpen = false;
         await TryAsync(ReloadProductsAndHistoryAsync);
-        Info(lines.Count == 0
-            ? $"Bon d'encaissement {saved.Number} enregistré pour « {clientName} » ({saved.AmountPaid:N2} DA)."
-            : $"Bon de livraison {saved.Number} enregistré pour « {clientName} » ({saved.Total:N2} DA, reste à payer {saved.Remaining:N2} DA).\nLe stock a été mis à jour.");
+        if (editing != null)
+            Info($"Bon {saved.Number} modifié pour « {clientName} » ({saved.Total:N2} DA, encaissé {saved.AmountPaid:N2} DA).\n" +
+                 "Le stock, la dette du client et le rapport ont été mis à jour.");
+        else
+            Info(lines.Count == 0
+                ? $"Bon d'encaissement {saved.Number} enregistré pour « {clientName} » ({saved.AmountPaid:N2} DA)."
+                : $"Bon de livraison {saved.Number} enregistré pour « {clientName} » ({saved.Total:N2} DA, reste à payer {saved.Remaining:N2} DA).\nLe stock a été mis à jour.");
+        if (print) await PrintNoteAsync(saved.Id);
     }
 
     [RelayCommand]
     private void Print()
     {
         PrintHelper.PrintTable("Bons de livraison et encaissements",
-            ["N°", "Date", "Type", "Client", "Total (DA)", "Reste (DA)"],
-            History.Select(r => new[] { r.Number, r.Date.ToString("dd/MM/yyyy"), r.TypeLabel, r.ClientName,
+            ["N°", "Date", "Client", "Total (DA)", "Reste (DA)"],
+            History.Select(r => new[] { r.Number, r.Date.ToString("dd/MM/yyyy"), r.ClientName,
                 r.Total.ToString("N2"), r.Remaining.ToString("N2") }).ToList());
     }
 }

@@ -25,11 +25,10 @@ public static class DatabaseInitializer
 
         if (!await db.Products.AnyAsync())
         {
-            var ops = await db.Operators.ToDictionaryAsync(o => o.Name, o => o.Id);
             db.Products.AddRange(
-                new Product { Name = "Flexy", Kind = ProductKind.VirtualCredit, OperatorId = ops["Djezzy"], ColorHex = "#F59E0B" },
-                new Product { Name = "Storm", Kind = ProductKind.VirtualCredit, OperatorId = ops["Ooredoo"], ColorHex = "#DC2626" },
-                new Product { Name = "Erselli", Kind = ProductKind.VirtualCredit, OperatorId = ops["Mobilis"], ColorHex = "#16A34A" },
+                new Product { Name = "Flexy", Kind = ProductKind.VirtualCredit, ColorHex = "#F59E0B" },
+                new Product { Name = "Storm", Kind = ProductKind.VirtualCredit, ColorHex = "#DC2626" },
+                new Product { Name = "Erselli", Kind = ProductKind.VirtualCredit, ColorHex = "#16A34A" },
                 new Product { Name = "Cartes Idoom", Kind = ProductKind.Physical, ColorHex = "#2563EB" });
         }
         else

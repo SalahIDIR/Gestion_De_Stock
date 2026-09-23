@@ -31,7 +31,12 @@ public partial class SuppliersViewModel : ViewModelBase
     [ObservableProperty] private string _search = "";
     [ObservableProperty] private string _debtMin = "";
     [ObservableProperty] private string _debtMax = "";
-    [ObservableProperty] private SupplierRow? _selected;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(EditCommand), nameof(DeleteCommand))]
+    private SupplierRow? _selected;
+
+    /// <summary>Formulaire du fournisseur affiché par-dessus la liste. Le fermer sans enregistrer garde la saisie en cours.</summary>
+    [ObservableProperty] private bool _isFormOpen;
     [ObservableProperty] private int _editId;
     [ObservableProperty] private string _reference = "";
     [ObservableProperty] private string _companyName = "";
@@ -46,9 +51,22 @@ public partial class SuppliersViewModel : ViewModelBase
     partial void OnDebtMinChanged(string value) => ApplyFilter();
     partial void OnDebtMaxChanged(string value) => ApplyFilter();
 
-    partial void OnSelectedChanged(SupplierRow? value)
+    private bool HasSelection() => Selected != null;
+
+    [RelayCommand]
+    private void OpenForm()
     {
-        if (value == null) return;
+        if (EditId != 0) New(); // on quitte la modification d'un fournisseur pour en créer un nouveau
+        IsFormOpen = true;
+    }
+
+    [RelayCommand] private void CloseForm() => IsFormOpen = false;
+
+    /// <summary>Charge le fournisseur sélectionné dans le formulaire pour le modifier.</summary>
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private void Edit()
+    {
+        if (Selected is not { } value) return;
         var s = value.Supplier;
         EditId = s.Id;
         Reference = s.Reference;
@@ -56,6 +74,7 @@ public partial class SuppliersViewModel : ViewModelBase
         Address = s.Address ?? "";
         Phone1 = s.Phone1 ?? "";
         Phone2 = s.Phone2 ?? "";
+        IsFormOpen = true;
     }
 
     private async Task LoadAsync()
@@ -86,10 +105,10 @@ public partial class SuppliersViewModel : ViewModelBase
         foreach (var r in rows) Items.Add(r);
     }
 
+    /// <summary>Vide le formulaire pour saisir un nouveau fournisseur.</summary>
     [RelayCommand]
     private void New()
     {
-        Selected = null;
         EditId = 0;
         Reference = CompanyName = Address = Phone1 = Phone2 = "";
     }
@@ -104,18 +123,21 @@ public partial class SuppliersViewModel : ViewModelBase
         }));
         if (!ok) return;
         New();
+        IsFormOpen = false;
         await LoadAsync();
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task DeleteAsync()
     {
-        if (EditId == 0 || !Confirm($"Supprimer le fournisseur « {CompanyName} » ?")) return;
-        if (await TryAsync(() => _service.DeleteAsync(EditId)))
+        if (Selected is not { } row || !Confirm($"Supprimer le fournisseur « {row.CompanyName} » ?\nCette action est définitive.")) return;
+        if (!await TryAsync(() => _service.DeleteAsync(row.Supplier.Id))) return;
+        if (EditId == row.Supplier.Id)
         {
             New();
-            await LoadAsync();
+            IsFormOpen = false;
         }
+        await LoadAsync();
     }
 
     [RelayCommand]

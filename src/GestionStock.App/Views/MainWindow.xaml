@@ -1,30 +1,66 @@
 <Window x:Class="GestionStock.App.Views.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Gestion Stock" Width="1440" Height="800" MinWidth="1200" MinHeight="640"
-        WindowStartupLocation="CenterScreen" Background="{StaticResource Surface}">
+        Title="Gestion Stock" Width="1440" Height="800" MinWidth="1024" MinHeight="600"
+        WindowStartupLocation="CenterScreen" WindowState="Maximized" Background="{StaticResource Surface}">
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="210"/>
+            <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <DockPanel Background="{StaticResource Accent}">
-            <StackPanel DockPanel.Dock="Top" Margin="18,20,18,20">
-                <TextBlock Text="Gestion Stock" Foreground="White" FontSize="18" FontWeight="SemiBold"/>
-                <TextBlock Foreground="#B5C7DA" FontSize="12" Margin="0,4,0,0">
-                    <Run Text="Connecté : "/><Run Text="{Binding CurrentUser.Username, Mode=OneWay}"/>
-                </TextBlock>
-            </StackPanel>
-            <StackPanel DockPanel.Dock="Top">
+        <DockPanel Background="{StaticResource Accent}" ClipToBounds="True">
+            <!-- Le menu glisse entre 210 (déplié) et 48 (replié : seul le bouton ☰ reste visible). -->
+            <DockPanel.Style>
+                <Style TargetType="DockPanel">
+                    <Setter Property="Width" Value="210"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsMenuOpen}" Value="False">
+                            <DataTrigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetProperty="Width" To="48" Duration="0:0:0.2">
+                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </DataTrigger.EnterActions>
+                            <DataTrigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetProperty="Width" To="210" Duration="0:0:0.2">
+                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </DataTrigger.ExitActions>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DockPanel.Style>
+
+            <Button DockPanel.Dock="Top" Content="☰" Command="{Binding ToggleMenuCommand}" Style="{StaticResource NavButton}"
+                    FontSize="18" Padding="16,10" ToolTip="Afficher / masquer le menu"/>
+
+            <!-- Largeur fixe : pendant le repli, le contenu est rogné au lieu d'être recomposé (pas de texte écrasé). -->
+            <StackPanel DockPanel.Dock="Top" Width="210"
+                        Visibility="{Binding IsMenuOpen, Converter={StaticResource BoolToVis}}">
+                <StackPanel Margin="18,0,18,20">
+                    <TextBlock Text="Gestion Stock" Foreground="White" FontSize="18" FontWeight="SemiBold"/>
+                    <TextBlock Foreground="#B5C7DA" FontSize="12" Margin="0,4,0,0">
+                        <Run Text="Connecté : "/><Run Text="{Binding CurrentUser.Username, Mode=OneWay}"/>
+                    </TextBlock>
+                </StackPanel>
                 <Button Content="Bons de livraison" Command="{Binding ShowDeliveriesCommand}" Style="{StaticResource NavButton}"/>
                 <Button Content="Bons d'achat" Command="{Binding ShowPurchasesCommand}" Style="{StaticResource NavButton}"/>
                 <Button Content="Produits &amp; stock" Command="{Binding ShowProductsCommand}" Style="{StaticResource NavButton}"/>
                 <Button Content="Fournisseurs" Command="{Binding ShowSuppliersCommand}" Style="{StaticResource NavButton}"/>
                 <Button Content="Clients" Command="{Binding ShowClientsCommand}" Style="{StaticResource NavButton}"/>
-                <Button Content="Rapport" Command="{Binding ShowReportCommand}" Style="{StaticResource NavButton}"/>
+                <Button Content="Rapport transactions" Command="{Binding ShowTransactionsReportCommand}" Style="{StaticResource NavButton}"/>
+                <Button Content="Historique" Command="{Binding ShowReportCommand}" Style="{StaticResource NavButton}"/>
                 <Button Content="Paramètres" Command="{Binding ShowSettingsCommand}" Style="{StaticResource NavButton}"/>
             </StackPanel>
+            <Grid/>
         </DockPanel>
 
         <ContentControl Grid.Column="1" Content="{Binding CurrentPage}" Margin="24"/>
