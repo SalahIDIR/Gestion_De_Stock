@@ -246,7 +246,9 @@ public class PurchaseService
 
     private static async Task UpsertRateAsync(AppDbContext db, int supplierId, int productId, decimal rate)
     {
-        var existing = await db.SupplierProductRates.FirstOrDefaultAsync(r => r.SupplierId == supplierId && r.ProductId == productId);
+        // Même précaution que pour les ventes : plusieurs lignes du même produit dans un bon d'achat.
+        var existing = db.SupplierProductRates.Local.FirstOrDefault(r => r.SupplierId == supplierId && r.ProductId == productId)
+                       ?? await db.SupplierProductRates.FirstOrDefaultAsync(r => r.SupplierId == supplierId && r.ProductId == productId);
         if (existing == null) db.SupplierProductRates.Add(new SupplierProductRate { SupplierId = supplierId, ProductId = productId, Rate = rate });
         else existing.Rate = rate;
     }

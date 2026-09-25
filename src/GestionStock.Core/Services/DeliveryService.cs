@@ -364,7 +364,10 @@ public class DeliveryService
 
     private static async Task UpsertRateAsync(AppDbContext db, int clientId, int productId, decimal rate)
     {
-        var existing = await db.ClientProductRates.FirstOrDefaultAsync(r => r.ClientId == clientId && r.ProductId == productId);
+        // On regarde d'abord les tarifs déjà ajoutés dans cette transaction : un bon peut contenir plusieurs lignes du même
+        // produit, et le tarif de la ligne précédente n'est pas encore enregistré en base.
+        var existing = db.ClientProductRates.Local.FirstOrDefault(r => r.ClientId == clientId && r.ProductId == productId)
+                       ?? await db.ClientProductRates.FirstOrDefaultAsync(r => r.ClientId == clientId && r.ProductId == productId);
         if (existing == null) db.ClientProductRates.Add(new ClientProductRate { ClientId = clientId, ProductId = productId, Rate = rate });
         else existing.Rate = rate;
     }

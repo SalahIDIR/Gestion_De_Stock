@@ -115,6 +115,21 @@ public class PurchaseTests
     }
 
     [Fact]
+    public async Task A_purchase_can_contain_two_lines_of_the_same_product()
+    {
+        using var db = await TestDb.CreateAsync();
+        var (supplier, flexy, _) = await SetupAsync(db);
+        var purchases = new PurchaseService(db);
+
+        var order = await purchases.CreateAsync(new PurchaseInput(supplier.Id, DateTime.Today,
+            [new PurchaseLineInput(flexy.Id, 1_000m, 0.97m), new PurchaseLineInput(flexy.Id, 2_000m, 0.975m)], 0m));
+
+        Assert.Equal(2, order.Lines.Count);
+        Assert.Equal(3_000m, (await new ProductService(db).ListAsync()).Single(p => p.Id == flexy.Id).StockBalance);
+        Assert.Equal(0.975m, (await purchases.GetLastPricesAsync(supplier.Id))[flexy.Id]); // le tarif de la dernière ligne est retenu
+    }
+
+    [Fact]
     public async Task Supplier_debt_is_the_sum_of_unpaid_amounts_and_blocks_deletion()
     {
         using var db = await TestDb.CreateAsync();

@@ -99,6 +99,79 @@ public class ReportTests
     }
 
     [Fact]
+    public async Task Each_transaction_row_shows_the_stock_left_after_it()
+    {
+        var c = await SetupAsync(); // achat de 1 000 000 aujourd'hui
+        using var _ = c.Db;
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [new DeliveryLineInput(c.Flexy.Id, 10_000m, 0.98m)], 0m));
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [new DeliveryLineInput(c.Flexy.Id, 5_000m, 0.98m)], 0m));
+
+        var rows = await c.Reports.GetOperationsAsync();
+
+        Assert.Equal(1_000_000m, Assert.Single(rows, r => r.Type == "Achat").StockAfter);
+        Assert.Equal(990_000m, Assert.Single(rows, r => r.Type == "Vente" && r.Quantity == 10_000m).StockAfter);
+        Assert.Equal(985_000m, Assert.Single(rows, r => r.Type == "Vente" && r.Quantity == 5_000m).StockAfter);
+    }
+
+    [Fact]
+    public async Task Stock_after_follows_the_transaction_date_not_the_order_of_entry()
+    {
+        var c = await SetupAsync(); // achat de 1 000 000 aujourd'hui
+        using var _ = c.Db;
+        // Saisis après coup mais datés avant : l'achat de 500 000 (il y a 5 jours) puis la vente de 10 000 (il y a 3 jours).
+        await new PurchaseService(c.Db).CreateAsync(new PurchaseInput(c.Supplier.Id, DateTime.Today.AddDays(-5),
+            [new PurchaseLineInput(c.Flexy.Id, 500_000m, 0.97m)], 0m));
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today.AddDays(-3),
+            [new DeliveryLineInput(c.Flexy.Id, 10_000m, 0.98m)], 0m));
+
+        var rows = await c.Reports.GetOperationsAsync();
+
+        Assert.Equal(490_000m, Assert.Single(rows, r => r.Type == "Vente").StockAfter);
+        Assert.Equal(1_490_000m, Assert.Single(rows, r => r.Type == "Achat" && r.Quantity == 1_000_000m).StockAfter);
+    }
+
+    [Fact]
+    public async Task A_stock_correction_is_taken_into_account_in_the_stock_after()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [new DeliveryLineInput(c.Flexy.Id, 10_000m, 0.98m)], 0m)); // 990 000
+        await new ProductService(c.Db).AdjustStockAsync(c.Flexy.Id, 900_000m, "Comptage");
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Now.AddMinutes(5), [new DeliveryLineInput(c.Flexy.Id, 5_000m, 0.98m)], 0m));
+
+        var rows = await c.Reports.GetOperationsAsync();
+
+        Assert.Equal(895_000m, Assert.Single(rows, r => r.Type == "Vente" && r.Quantity == 5_000m).StockAfter);
+    }
+
+    [Fact]
+    public async Task Two_lines_of_the_same_product_in_one_bon_each_get_their_own_stock_after()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today,
+            [new DeliveryLineInput(c.Flexy.Id, 6_000m, 0.98m), new DeliveryLineInput(c.Flexy.Id, 4_000m, 0.98m)], 0m));
+
+        var rows = await c.Reports.GetOperationsAsync();
+
+        Assert.Equal(994_000m, Assert.Single(rows, r => r.Type == "Vente" && r.Quantity == 6_000m).StockAfter);
+        Assert.Equal(990_000m, Assert.Single(rows, r => r.Type == "Vente" && r.Quantity == 4_000m).StockAfter);
+    }
+
+    [Fact]
+    public async Task An_encaissement_row_has_no_stock_after()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [new DeliveryLineInput(c.Flexy.Id, 10_000m, 1m)], 0m));
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 3_000m));
+
+        var rows = await c.Reports.GetOperationsAsync();
+
+        Assert.Null(Assert.Single(rows, r => r.Type == "Encaissement").StockAfter);
+    }
+
+    [Fact]
     public async Task A_payment_only_bon_produces_an_encaissement_row()
     {
         var c = await SetupAsync();

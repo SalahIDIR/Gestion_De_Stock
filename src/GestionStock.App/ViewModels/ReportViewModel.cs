@@ -20,6 +20,8 @@ public record OperationRowView(OperationRow Row)
     public string QuantityText => Row.Quantity?.ToString("N2") ?? "";
     public string RateText => Row.Rate?.ToString("0.####") ?? "";
     public decimal Total => Row.Total;
+    /// <summary>Stock du produit après l'opération ; « — » quand il n'y en a pas (encaissement).</summary>
+    public string StockAfterText => Row.StockAfter?.ToString("N2") ?? "—";
 }
 
 /// <summary>Filtre "tous les tiers" ou un produit particulier, utilisé dans la liste déroulante du rapport.</summary>

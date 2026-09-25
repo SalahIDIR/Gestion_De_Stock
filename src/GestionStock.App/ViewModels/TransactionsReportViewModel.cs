@@ -29,8 +29,9 @@ public partial class TransactionsReportViewModel : ViewModelBase
     [ObservableProperty] private bool _showVentes = true;
     [ObservableProperty] private string _tiersSearch = "";
     [ObservableProperty] private ProductFilterOption? _productFilter;
-    [ObservableProperty] private DateTime? _dateFrom;
-    [ObservableProperty] private DateTime? _dateTo;
+    // Par défaut : du 1er du mois jusqu'à aujourd'hui. Pour remonter plus loin, il suffit de reculer la date « Du ».
+    [ObservableProperty] private DateTime? _dateFrom = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+    [ObservableProperty] private DateTime? _dateTo = DateTime.Today;
 
     /// <summary>Crédit reçu des fournisseurs (valeur faciale) et ce qu'il a coûté.</summary>
     [ObservableProperty] private decimal _creditAchete;
@@ -85,11 +86,11 @@ public partial class TransactionsReportViewModel : ViewModelBase
     private void Print()
     {
         PrintHelper.PrintTable("Rapport des transactions de crédit virtuel",
-            ["Date", "Type", "N°", "Tiers", "Produit", "Montant crédit (DA)", "Coef.", "Total (DA)"],
+            ["Date", "Type", "N°", "Tiers", "Produit", "Montant crédit (DA)", "Crédit restant (DA)"],
             Items.Select(r => new[]
             {
                 r.Date.ToString("dd/MM/yyyy HH:mm"), r.Type, r.Number, r.Tiers, r.ProductName,
-                r.QuantityText, r.RateText, r.Total.ToString("N2"),
+                r.QuantityText, r.StockAfterText,
             }).ToList());
     }
 }

@@ -75,12 +75,13 @@
                         </Style>
                     </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
-                <DataGridTextColumn Header="Coef." Binding="{Binding RateText}" Width="70"/>
-                <DataGridTextColumn Header="Total (DA)" Binding="{Binding Total, StringFormat=N2}" Width="110">
+                <DataGridTextColumn Header="Crédit restant (DA)" Binding="{Binding StockAfterText}" Width="140">
                     <DataGridTextColumn.ElementStyle>
                         <Style TargetType="TextBlock">
                             <Setter Property="HorizontalAlignment" Value="Right"/>
                             <Setter Property="Padding" Value="0,0,8,0"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                            <Setter Property="ToolTip" Value="Stock du produit juste après cette transaction"/>
                         </Style>
                     </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
