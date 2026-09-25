@@ -11,6 +11,9 @@ public record KindOption(ProductKind Kind, string Label);
 
 public record KindFilterOption(ProductKind? Kind, string Label);
 
+/// <summary>Choix du filtre par type dans la fenêtre des mouvements (null = tous les types).</summary>
+public record MovementKindOption(StockMovementKind? Kind, string Label);
+
 public static class Labels
 {
     public static string Kind(ProductKind kind) => kind == ProductKind.VirtualCredit ? "Crédit virtuel" : "Produit physique";
@@ -40,6 +43,7 @@ public record ProductRow(Product Product, decimal? PurchaseCost)
 public record MovementRow(StockMovement Movement)
 {
     public DateTime Date => Movement.Date;
+    public StockMovementKind Kind => Movement.Kind;
     public string KindLabel => Labels.Movement(Movement.Kind);
     public string QuantityText => Movement.Quantity.ToString("+#,##0.00;-#,##0.00");
     public string? Note => Movement.Note;
@@ -52,8 +56,17 @@ public partial class ProductsViewModel : ViewModelBase
     public ProductsViewModel(ProductService service)
     {
         _service = service;
+        MovementsKind = MovementKindFilters[0];
         _ = InitializeAsync();
     }
+
+    public IReadOnlyList<MovementKindOption> MovementKindFilters { get; } =
+    [
+        new(null, "Tous les types"),
+        new(StockMovementKind.Purchase, Labels.Movement(StockMovementKind.Purchase)),
+        new(StockMovementKind.Sale, Labels.Movement(StockMovementKind.Sale)),
+        new(StockMovementKind.Adjustment, Labels.Movement(StockMovementKind.Adjustment)),
+    ];
 
     public ObservableCollection<ProductRow> Items { get; } = new();
     public ObservableCollection<MovementRow> Movements { get; } = new();
@@ -93,6 +106,7 @@ public partial class ProductsViewModel : ViewModelBase
     [ObservableProperty] private bool _isMovementsOpen;
     [ObservableProperty] private DateTime? _movementsFrom;
     [ObservableProperty] private DateTime? _movementsTo;
+    [ObservableProperty] private MovementKindOption? _movementsKind;
 
     /// <summary>Fiche produit affichée par-dessus la liste. La fermer sans enregistrer garde la saisie en cours.</summary>
     [ObservableProperty] private bool _isFormOpen;
@@ -120,6 +134,7 @@ public partial class ProductsViewModel : ViewModelBase
 
     partial void OnMovementsFromChanged(DateTime? value) => ApplyMovementsFilter();
     partial void OnMovementsToChanged(DateTime? value) => ApplyMovementsFilter();
+    partial void OnMovementsKindChanged(MovementKindOption? value) => ApplyMovementsFilter();
 
     partial void OnSelectedChanged(ProductRow? value)
     {
@@ -132,13 +147,14 @@ public partial class ProductsViewModel : ViewModelBase
         else IsMovementsOpen = false;
     }
 
-    /// <summary>Recalcule la liste de la fenêtre agrandie : mouvements compris entre les deux dates (bornes incluses).</summary>
+    /// <summary>Recalcule la liste de la fenêtre agrandie : mouvements du type choisi, compris entre les deux dates (bornes incluses).</summary>
     private void ApplyMovementsFilter()
     {
         FilteredMovements.Clear();
         foreach (var m in Movements
                      .Where(m => MovementsFrom == null || m.Date.Date >= MovementsFrom.Value.Date)
-                     .Where(m => MovementsTo == null || m.Date.Date <= MovementsTo.Value.Date))
+                     .Where(m => MovementsTo == null || m.Date.Date <= MovementsTo.Value.Date)
+                     .Where(m => MovementsKind?.Kind == null || m.Kind == MovementsKind.Kind))
             FilteredMovements.Add(m);
     }
 
@@ -186,6 +202,7 @@ public partial class ProductsViewModel : ViewModelBase
     {
         MovementsFrom = null;
         MovementsTo = null;
+        MovementsKind = MovementKindFilters[0];
     }
 
     [RelayCommand]
@@ -198,6 +215,7 @@ public partial class ProductsViewModel : ViewModelBase
             (null, { } to) => $" — jusqu'au {to:dd/MM/yyyy}",
             _ => "",
         };
+        if (MovementsKind?.Kind != null) period += $" — {MovementsKind.Label}";
         PrintHelper.PrintTable(MovementsTitle + period,
             ["Date", "Type", "Quantité", "Note"],
             FilteredMovements.Select(m => new[] { m.Date.ToString("dd/MM/yyyy HH:mm"), m.KindLabel, m.QuantityText, m.Note ?? "" }).ToList());

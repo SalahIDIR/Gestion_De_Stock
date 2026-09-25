@@ -173,6 +173,11 @@
                             <TextBlock Text="Au" Style="{StaticResource FieldLabel}"/>
                             <DatePicker SelectedDate="{Binding MovementsTo}" Margin="0"/>
                         </StackPanel>
+                        <StackPanel Width="170" Margin="0,0,12,0">
+                            <TextBlock Text="Type" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox ItemsSource="{Binding MovementKindFilters}" DisplayMemberPath="Label"
+                                      SelectedItem="{Binding MovementsKind}" Margin="0,2,0,0"/>
+                        </StackPanel>
                         <Button Content="Réinitialiser" Command="{Binding ResetMovementsFilterCommand}" VerticalAlignment="Bottom" Margin="0" Padding="10,4"/>
                     </StackPanel>
 
