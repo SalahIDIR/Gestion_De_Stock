@@ -57,6 +57,8 @@ public partial class ProductsViewModel : ViewModelBase
 
     public ObservableCollection<ProductRow> Items { get; } = new();
     public ObservableCollection<MovementRow> Movements { get; } = new();
+    /// <summary>Mouvements affichés dans la fenêtre agrandie, filtrés par date.</summary>
+    public ObservableCollection<MovementRow> FilteredMovements { get; } = new();
 
     /// <summary>Nuances prêtes à l'emploi pour la couleur du produit dans le rapport.</summary>
     public IReadOnlyList<string> ColorPresets { get; } =
@@ -84,8 +86,13 @@ public partial class ProductsViewModel : ViewModelBase
     [ObservableProperty] private string _search = "";
     [ObservableProperty] private KindFilterOption? _kindFilter;
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(EditCommand), nameof(DeleteCommand), nameof(OpenAdjustCommand))]
+    [NotifyCanExecuteChangedFor(nameof(EditCommand), nameof(DeleteCommand), nameof(OpenAdjustCommand), nameof(OpenMovementsCommand))]
     private ProductRow? _selected;
+
+    /// <summary>Fenêtre agrandie des mouvements du produit sélectionné (avec filtre par date et impression).</summary>
+    [ObservableProperty] private bool _isMovementsOpen;
+    [ObservableProperty] private DateTime? _movementsFrom;
+    [ObservableProperty] private DateTime? _movementsTo;
 
     /// <summary>Fiche produit affichée par-dessus la liste. La fermer sans enregistrer garde la saisie en cours.</summary>
     [ObservableProperty] private bool _isFormOpen;
@@ -109,12 +116,30 @@ public partial class ProductsViewModel : ViewModelBase
     public string AdjustTitle => Selected == null ? "" : $"Corriger le stock de « {Selected.Name} »";
     public string AdjustCurrent => Selected == null ? "" : $"Stock actuel : {Selected.StockBalance:N2} {Selected.Unit}";
 
+    public string MovementsTitle => Selected == null ? "" : $"Mouvements de « {Selected.Name} »";
+
+    partial void OnMovementsFromChanged(DateTime? value) => ApplyMovementsFilter();
+    partial void OnMovementsToChanged(DateTime? value) => ApplyMovementsFilter();
+
     partial void OnSelectedChanged(ProductRow? value)
     {
         Movements.Clear();
+        ApplyMovementsFilter();
         OnPropertyChanged(nameof(AdjustTitle));
         OnPropertyChanged(nameof(AdjustCurrent));
+        OnPropertyChanged(nameof(MovementsTitle));
         if (value != null) _ = LoadMovementsAsync(value.Product.Id);
+        else IsMovementsOpen = false;
+    }
+
+    /// <summary>Recalcule la liste de la fenêtre agrandie : mouvements compris entre les deux dates (bornes incluses).</summary>
+    private void ApplyMovementsFilter()
+    {
+        FilteredMovements.Clear();
+        foreach (var m in Movements
+                     .Where(m => MovementsFrom == null || m.Date.Date >= MovementsFrom.Value.Date)
+                     .Where(m => MovementsTo == null || m.Date.Date <= MovementsTo.Value.Date))
+            FilteredMovements.Add(m);
     }
 
     private bool HasSelection() => Selected != null;
@@ -150,6 +175,33 @@ public partial class ProductsViewModel : ViewModelBase
     }
 
     [RelayCommand] private void CloseAdjust() => IsAdjustOpen = false;
+
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private void OpenMovements() => IsMovementsOpen = true;
+
+    [RelayCommand] private void CloseMovements() => IsMovementsOpen = false;
+
+    [RelayCommand]
+    private void ResetMovementsFilter()
+    {
+        MovementsFrom = null;
+        MovementsTo = null;
+    }
+
+    [RelayCommand]
+    private void PrintMovements()
+    {
+        var period = (MovementsFrom, MovementsTo) switch
+        {
+            ({ } from, { } to) => $" — du {from:dd/MM/yyyy} au {to:dd/MM/yyyy}",
+            ({ } from, null) => $" — depuis le {from:dd/MM/yyyy}",
+            (null, { } to) => $" — jusqu'au {to:dd/MM/yyyy}",
+            _ => "",
+        };
+        PrintHelper.PrintTable(MovementsTitle + period,
+            ["Date", "Type", "Quantité", "Note"],
+            FilteredMovements.Select(m => new[] { m.Date.ToString("dd/MM/yyyy HH:mm"), m.KindLabel, m.QuantityText, m.Note ?? "" }).ToList());
+    }
 
     private async Task InitializeAsync()
     {
@@ -189,6 +241,7 @@ public partial class ProductsViewModel : ViewModelBase
             if (Selected?.Product.Id != productId) return;
             Movements.Clear();
             foreach (var m in rows) Movements.Add(new MovementRow(m));
+            ApplyMovementsFilter();
         });
     }
 
@@ -262,10 +315,10 @@ public partial class ProductsViewModel : ViewModelBase
     private void Print()
     {
         PrintHelper.PrintTable("Produits & stock",
-            ["Produit", "Type", "Stock", "Unité", "Prix d'achat", "Total (DA)", "Actif"],
+            ["Produit", "Type", "Stock", "Prix d'achat", "Total (DA)", "Actif"],
             Items.Select(r => new[]
             {
-                r.Name, r.KindLabel, r.StockBalance.ToString("N2"), r.Unit, r.PurchaseCostText, r.StockValue?.ToString("N2") ?? "—", r.ActiveLabel,
+                r.Name, r.KindLabel, r.StockBalance.ToString("N2"), r.PurchaseCostText, r.StockValue?.ToString("N2") ?? "—", r.ActiveLabel,
             }).ToList());
     }
 }

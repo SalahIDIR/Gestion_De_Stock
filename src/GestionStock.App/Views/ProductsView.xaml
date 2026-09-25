@@ -51,7 +51,6 @@
                             </Style>
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
-                    <DataGridTextColumn Header="Unité" Binding="{Binding Unit}" Width="70"/>
                     <DataGridTextColumn Header="Prix d'achat" Binding="{Binding PurchaseCostText}" Width="100">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
@@ -85,7 +84,11 @@
                     <Button Content="Corriger le stock" Command="{Binding OpenAdjustCommand}"/>
                     <Button Content="Supprimer le produit" Command="{Binding DeleteCommand}" Style="{StaticResource DangerButton}"/>
                 </StackPanel>
-                <TextBlock Text="Mouvements du produit sélectionné" Style="{StaticResource Section}" Margin="0,12,0,6"/>
+                <DockPanel Margin="0,12,0,6">
+                    <Button DockPanel.Dock="Right" Content="⤢ Agrandir" Command="{Binding OpenMovementsCommand}" Margin="0" Padding="10,3"
+                            ToolTip="Agrandir le tableau : filtrer par date et imprimer"/>
+                    <TextBlock Text="Mouvements du produit sélectionné" Style="{StaticResource Section}" Margin="0" VerticalAlignment="Center"/>
+                </DockPanel>
             </StackPanel>
             <DataGrid Grid.Row="4" ItemsSource="{Binding Movements}">
                 <DataGrid.Columns>
@@ -144,6 +147,44 @@
                         <Button Content="Annuler" Command="{Binding CloseFormCommand}"/>
                     </StackPanel>
                 </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Mouvements du produit sélectionné, en grand : filtre par date et impression -->
+        <Grid Visibility="{Binding IsMovementsOpen, Converter={StaticResource BoolToVis}}">
+            <Border Background="#66101828" Margin="-24"/>
+            <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="18" Margin="8">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="24" ShadowDepth="4" Opacity="0.25"/>
+                </Border.Effect>
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                        <Button DockPanel.Dock="Right" Content="✕ Fermer" Command="{Binding CloseMovementsCommand}" Margin="0" Padding="10,4"/>
+                        <Button DockPanel.Dock="Right" Content="Imprimer" Command="{Binding PrintMovementsCommand}" Margin="0,0,8,0" Padding="10,4"/>
+                        <TextBlock Text="{Binding MovementsTitle}" Style="{StaticResource Title}" Margin="0" VerticalAlignment="Center"/>
+                    </DockPanel>
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+                        <StackPanel Width="150" Margin="0,0,12,0">
+                            <TextBlock Text="Du" Style="{StaticResource FieldLabel}"/>
+                            <DatePicker SelectedDate="{Binding MovementsFrom}" Margin="0"/>
+                        </StackPanel>
+                        <StackPanel Width="150" Margin="0,0,12,0">
+                            <TextBlock Text="Au" Style="{StaticResource FieldLabel}"/>
+                            <DatePicker SelectedDate="{Binding MovementsTo}" Margin="0"/>
+                        </StackPanel>
+                        <Button Content="Réinitialiser" Command="{Binding ResetMovementsFilterCommand}" VerticalAlignment="Bottom" Margin="0" Padding="10,4"/>
+                    </StackPanel>
+
+                    <DataGrid ItemsSource="{Binding FilteredMovements}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Date" Binding="{Binding Date, StringFormat=dd/MM/yyyy HH:mm}" Width="150"/>
+                            <DataGridTextColumn Header="Type" Binding="{Binding KindLabel}" Width="120"/>
+                            <DataGridTextColumn Header="Quantité" Binding="{Binding QuantityText}" Width="160"/>
+                            <DataGridTextColumn Header="Note" Binding="{Binding Note}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
             </Border>
         </Grid>
 
