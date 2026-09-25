@@ -22,6 +22,8 @@ public record OperationRowView(OperationRow Row)
     public decimal Total => Row.Total;
     /// <summary>Stock du produit après l'opération ; « — » quand il n'y en a pas (encaissement).</summary>
     public string StockAfterText => Row.StockAfter?.ToString("N2") ?? "—";
+    /// <summary>Puce ayant reçu le crédit : « — » si une vente n'en a pas enregistré, vide pour un achat.</summary>
+    public string RecipientPhoneText => Row.RecipientPhone ?? (Row.Type == "Vente" ? "—" : "");
 }
 
 /// <summary>Filtre "tous les tiers" ou un produit particulier, utilisé dans la liste déroulante du rapport.</summary>

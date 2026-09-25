@@ -159,6 +159,21 @@ public class ReportTests
     }
 
     [Fact]
+    public async Task A_sale_row_carries_the_chip_that_received_the_credit_and_a_purchase_has_none()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today,
+            [new DeliveryLineInput(c.Flexy.Id, 10_000m, 0.98m, "0770123456"), new DeliveryLineInput(c.Flexy.Id, 5_000m, 0.98m)], 0m));
+
+        var rows = await c.Reports.GetOperationsAsync();
+
+        Assert.Equal("0770123456", Assert.Single(rows, r => r.Type == "Vente" && r.Quantity == 10_000m).RecipientPhone);
+        Assert.Null(Assert.Single(rows, r => r.Type == "Vente" && r.Quantity == 5_000m).RecipientPhone); // aucune puce enregistrée
+        Assert.Null(Assert.Single(rows, r => r.Type == "Achat").RecipientPhone);
+    }
+
+    [Fact]
     public async Task An_encaissement_row_has_no_stock_after()
     {
         var c = await SetupAsync();

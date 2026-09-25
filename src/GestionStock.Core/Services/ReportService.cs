@@ -18,7 +18,9 @@ public record OperationRow(
     /// <summary>Type du produit de la ligne (null pour un encaissement).</summary>
     ProductKind? ProductKind = null,
     /// <summary>Stock du produit juste après cette opération (null pour un encaissement).</summary>
-    decimal? StockAfter = null);
+    decimal? StockAfter = null,
+    /// <summary>Numéro de la puce à laquelle le crédit a été envoyé (ventes seulement, s'il a été enregistré).</summary>
+    string? RecipientPhone = null);
 
 /// <summary>Rassemble achats, ventes et encaissements en un flux unique pour le rapport et l'audit.</summary>
 public class ReportService
@@ -91,7 +93,7 @@ public class ReportService
                     seen[line.ProductId] = occurrence + 1;
                     rows.Add(new OperationRow(note.Date, "Vente", note.Number, note.Client?.Name ?? "",
                         line.Product?.Name, line.Product?.ColorHex, line.Quantity, line.UnitPrice, line.LineTotal, line.Product?.Kind,
-                        StockAfterLine(saleBalances, note.Id, line.ProductId, occurrence)));
+                        StockAfterLine(saleBalances, note.Id, line.ProductId, occurrence), line.RecipientPhone));
                 }
 
                 // L'argent encaissé en même temps qu'une vente est de l'argent réellement entré en caisse :

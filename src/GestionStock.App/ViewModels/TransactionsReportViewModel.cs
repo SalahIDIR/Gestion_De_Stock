@@ -86,10 +86,10 @@ public partial class TransactionsReportViewModel : ViewModelBase
     private void Print()
     {
         PrintHelper.PrintTable("Rapport des transactions de crédit virtuel",
-            ["Date", "Type", "N°", "Tiers", "Produit", "Montant crédit (DA)", "Crédit restant (DA)"],
+            ["Date", "Type", "N°", "Tiers", "Produit", "Puce destinataire", "Montant crédit (DA)", "Crédit restant (DA)"],
             Items.Select(r => new[]
             {
-                r.Date.ToString("dd/MM/yyyy HH:mm"), r.Type, r.Number, r.Tiers, r.ProductName,
+                r.Date.ToString("dd/MM/yyyy HH:mm"), r.Type, r.Number, r.Tiers, r.ProductName, r.RecipientPhoneText,
                 r.QuantityText, r.StockAfterText,
             }).ToList());
     }

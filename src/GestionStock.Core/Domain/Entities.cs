@@ -105,8 +105,8 @@ public class ClientChip
     /// <summary>1 = numéro principal, 2 = deuxième numéro (facultatif) pour le même opérateur.</summary>
     public int Slot { get; set; } = 1;
 
-    /// <summary>Libellé d'affichage dans les listes déroulantes (opérateur et numéro). Propriété calculée, non mappée par EF.</summary>
-    public string DisplayLabel => (Operator != null ? $"{Operator.Name} · " : "") + (Slot == 1 ? PhoneNumber : $"{PhoneNumber} (2ᵉ numéro)");
+    /// <summary>Libellé d'affichage dans les listes déroulantes : le numéro seul. Propriété calculée, non mappée par EF.</summary>
+    public string DisplayLabel => PhoneNumber;
 
     public override string ToString() => DisplayLabel;
 }
