@@ -22,12 +22,30 @@ public record OperationRow(
     /// <summary>Numéro de la puce à laquelle le crédit a été envoyé (ventes seulement, s'il a été enregistré).</summary>
     string? RecipientPhone = null);
 
+/// <summary>
+/// Une ligne du bilan produits : stock actuel (indépendant de la période) et activité sur la période choisie.
+/// Marge = ventes de la période moins (quantité vendue × dernier prix d'achat connu) ; null si du stock a été vendu
+/// sans qu'aucun achat n'ait jamais été enregistré pour ce produit (cas anormal, coût inconnu).
+/// </summary>
+public record ProductBalanceRow(string ProductName, string ColorHex, decimal CurrentStock, decimal Achats, decimal Ventes, decimal? Marge);
+
+/// <summary>Argent réellement entré (encaissements reçus des clients) et sorti (payé aux fournisseurs) sur la période.</summary>
+public record CashSummary(decimal TotalVersements, decimal TotalDepenses)
+{
+    public decimal Total => TotalVersements - TotalDepenses;
+}
+
 /// <summary>Rassemble achats, ventes et encaissements en un flux unique pour le rapport et l'audit.</summary>
 public class ReportService
 {
     private readonly IDbContextFactory<AppDbContext> _factory;
+    private readonly ProductService _products;
 
-    public ReportService(IDbContextFactory<AppDbContext> factory) => _factory = factory;
+    public ReportService(IDbContextFactory<AppDbContext> factory, ProductService products)
+    {
+        _factory = factory;
+        _products = products;
+    }
 
     public async Task<List<OperationRow>> GetOperationsAsync()
     {
@@ -115,4 +133,51 @@ public class ReportService
     /// <summary>Achats et ventes de crédit virtuel uniquement (Flexy, Storm, Erselli…), sans encaissements ni produits physiques.</summary>
     public async Task<List<OperationRow>> GetVirtualCreditTransactionsAsync()
         => (await GetOperationsAsync()).Where(r => r.ProductKind == ProductKind.VirtualCredit).ToList();
+
+    /// <summary>
+    /// Bilan par produit : stock actuel de chaque produit, et son activité (achats, ventes, marge) sur la période
+    /// [from, to] (bornes incluses ; une borne vide n'est pas limitée de ce côté). Accompagné de l'argent réellement
+    /// encaissé et dépensé sur la même période.
+    /// </summary>
+    public async Task<(List<ProductBalanceRow> Products, CashSummary Cash)> GetProductBalanceAsync(DateTime? from, DateTime? to)
+    {
+        bool InRange(DateTime d) => (from == null || d.Date >= from.Value.Date) && (to == null || d.Date <= to.Value.Date);
+
+        await using var db = await _factory.CreateDbContextAsync();
+        var products = await db.Products.AsNoTracking().OrderBy(p => p.Kind).ThenBy(p => p.Name).ToListAsync();
+        var lastCosts = await _products.GetLastPurchaseCostsAsync();
+
+        var purchaseLines = await db.PurchaseLines.AsNoTracking()
+            .Join(db.PurchaseOrders.AsNoTracking(), l => l.PurchaseOrderId, o => o.Id, (l, o) => new { l.ProductId, l.LineTotal, o.Date })
+            .ToListAsync();
+        var achatsByProduct = purchaseLines.Where(x => InRange(x.Date)).GroupBy(x => x.ProductId)
+            .ToDictionary(g => g.Key, g => g.Sum(x => x.LineTotal));
+
+        var saleLines = await db.DeliveryLines.AsNoTracking()
+            .Join(db.DeliveryNotes.AsNoTracking(), l => l.DeliveryNoteId, n => n.Id, (l, n) => new { l.ProductId, l.LineTotal, l.Quantity, n.Date })
+            .ToListAsync();
+        var inRangeSales = saleLines.Where(x => InRange(x.Date)).ToList();
+        var ventesByProduct = inRangeSales.GroupBy(x => x.ProductId).ToDictionary(g => g.Key, g => g.Sum(x => x.LineTotal));
+        var qtyVenduByProduct = inRangeSales.GroupBy(x => x.ProductId).ToDictionary(g => g.Key, g => g.Sum(x => x.Quantity));
+
+        var rows = products.Select(p =>
+        {
+            var ventes = ventesByProduct.GetValueOrDefault(p.Id);
+            var qtyVendu = qtyVenduByProduct.GetValueOrDefault(p.Id);
+            decimal? marge = qtyVendu == 0 ? 0m
+                : lastCosts.TryGetValue(p.Id, out var cost) ? Math.Round(ventes - qtyVendu * cost, 2, MidpointRounding.AwayFromZero)
+                : null;
+            return new ProductBalanceRow(p.Name, p.ColorHex, p.StockBalance, achatsByProduct.GetValueOrDefault(p.Id), ventes, marge);
+        }).ToList();
+
+        var notes = await db.DeliveryNotes.AsNoTracking().Select(n => new { n.Date, n.AmountPaid }).ToListAsync();
+        var separatePayments = await db.ClientPayments.AsNoTracking().Select(p => new { p.Date, p.Amount }).ToListAsync();
+        var orders = await db.PurchaseOrders.AsNoTracking().Select(o => new { o.Date, o.AmountPaid }).ToListAsync();
+
+        var totalVersements = notes.Where(n => InRange(n.Date)).Sum(n => n.AmountPaid)
+                               + separatePayments.Where(p => InRange(p.Date)).Sum(p => p.Amount);
+        var totalDepenses = orders.Where(o => InRange(o.Date)).Sum(o => o.AmountPaid);
+
+        return (rows, new CashSummary(totalVersements, totalDepenses));
+    }
 }

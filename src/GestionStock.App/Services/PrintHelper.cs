@@ -8,7 +8,8 @@ namespace GestionStock.App.Services;
 /// <summary>Impression simple d'une liste sous forme de tableau, réutilisée par toutes les pages.</summary>
 public static class PrintHelper
 {
-    public static void PrintTable(string title, IReadOnlyList<string> headers, IReadOnlyList<string[]> rows)
+    public static void PrintTable(string title, IReadOnlyList<string> headers, IReadOnlyList<string[]> rows,
+        IReadOnlyList<(string Label, string Value)>? totals = null)
     {
         var dialog = new PrintDialog();
         if (dialog.ShowDialog() != true) return;
@@ -43,6 +44,18 @@ public static class PrintHelper
             group.Rows.Add(tr);
         }
         doc.Blocks.Add(table);
+
+        if (totals is { Count: > 0 })
+        {
+            var totalsParagraph = new Paragraph { TextAlignment = TextAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
+            foreach (var (label, value) in totals)
+            {
+                if (totalsParagraph.Inlines.Count > 0) totalsParagraph.Inlines.Add(new LineBreak());
+                totalsParagraph.Inlines.Add(new Run($"{label} : "));
+                totalsParagraph.Inlines.Add(new Run(value) { FontWeight = FontWeights.SemiBold });
+            }
+            doc.Blocks.Add(totalsParagraph);
+        }
 
         IDocumentPaginatorSource source = doc;
         dialog.PrintDocument(source.DocumentPaginator, title);

@@ -21,7 +21,7 @@ public class EditDeleteTests
         var order = await purchases.CreateAsync(new PurchaseInput(supplier.Id, DateTime.Today,
             [new PurchaseLineInput(flexy.Id, 1_000_000m, 0.97m), new PurchaseLineInput(cards.Id, 100m, 480m)], 0m));
         var client = await new ClientService(db).SaveAsync(new Client { Name = "Boutique" });
-        return (new Ctx(db, supplier, client, flexy, cards, purchases, new DeliveryService(db), new ReportService(db)), order);
+        return (new Ctx(db, supplier, client, flexy, cards, purchases, new DeliveryService(db), new ReportService(db, new ProductService(db))), order);
     }
 
     private static async Task<decimal> StockOf(Ctx c, Product p)

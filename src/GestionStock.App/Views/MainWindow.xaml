@@ -57,6 +57,7 @@
                 <Button Content="Fournisseurs" Command="{Binding ShowSuppliersCommand}" Style="{StaticResource NavButton}"/>
                 <Button Content="Clients" Command="{Binding ShowClientsCommand}" Style="{StaticResource NavButton}"/>
                 <Button Content="Rapport transactions" Command="{Binding ShowTransactionsReportCommand}" Style="{StaticResource NavButton}"/>
+                <Button Content="Bilan produits" Command="{Binding ShowProductBalanceCommand}" Style="{StaticResource NavButton}"/>
                 <Button Content="Historique" Command="{Binding ShowReportCommand}" Style="{StaticResource NavButton}"/>
                 <Button Content="Paramètres" Command="{Binding ShowSettingsCommand}" Style="{StaticResource NavButton}"/>
             </StackPanel>

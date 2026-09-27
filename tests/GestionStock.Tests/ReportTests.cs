@@ -15,7 +15,7 @@ public class ReportTests
         await new PurchaseService(db).CreateAsync(new PurchaseInput(supplier.Id, DateTime.Today,
             [new PurchaseLineInput(flexy.Id, 1_000_000m, 0.97m)], 0m));
         var client = await new ClientService(db).SaveAsync(new Client { Name = "Boutique" });
-        return new Ctx(db, supplier, client, flexy, new ReportService(db), new DeliveryService(db));
+        return new Ctx(db, supplier, client, flexy, new ReportService(db, new ProductService(db)), new DeliveryService(db));
     }
 
     [Fact]
@@ -198,5 +198,102 @@ public class ReportTests
 
         var enc = Assert.Single(rows, r => r.Type == "Encaissement");
         Assert.Equal(3_000m, enc.Total);
+    }
+
+    [Fact]
+    public async Task Product_balance_totals_achats_and_ventes_within_the_period_only()
+    {
+        var c = await SetupAsync(); // achat de 1 000 000 aujourd'hui
+        using var _ = c.Db;
+        await new PurchaseService(c.Db).CreateAsync(new PurchaseInput(c.Supplier.Id, DateTime.Today.AddDays(-40),
+            [new PurchaseLineInput(c.Flexy.Id, 500_000m, 0.97m)], 0m));
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today.AddDays(-40), [new DeliveryLineInput(c.Flexy.Id, 20_000m, 0.98m)], 0m));
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [new DeliveryLineInput(c.Flexy.Id, 10_000m, 0.98m)], 0m));
+
+        var (rows, _) = await c.Reports.GetProductBalanceAsync(DateTime.Today.AddDays(-1), DateTime.Today);
+
+        var flexy = Assert.Single(rows, r => r.ProductName == "Flexy");
+        Assert.Equal(9_800m, flexy.Ventes);    // seule la vente d'aujourd'hui compte
+        Assert.Equal(970_000m, flexy.Achats);  // l'achat de la fixture (aujourd'hui) compte ; celui d'il y a 40 jours non
+    }
+
+    [Fact]
+    public async Task Product_balance_shows_the_current_stock_regardless_of_the_period()
+    {
+        var c = await SetupAsync(); // achat de 1 000 000 aujourd'hui
+        using var _ = c.Db;
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [new DeliveryLineInput(c.Flexy.Id, 10_000m, 0.98m)], 0m));
+
+        // Une période qui ne couvre aucune des deux opérations : la quantité reste quand même le stock réel actuel.
+        var (rows, _) = await c.Reports.GetProductBalanceAsync(DateTime.Today.AddDays(-90), DateTime.Today.AddDays(-80));
+
+        Assert.Equal(990_000m, Assert.Single(rows, r => r.ProductName == "Flexy").CurrentStock);
+    }
+
+    [Fact]
+    public async Task Product_balance_margin_uses_the_last_known_purchase_cost()
+    {
+        var c = await SetupAsync(); // achat de 1 000 000 à 0.97 aujourd'hui
+        using var _ = c.Db;
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [new DeliveryLineInput(c.Flexy.Id, 10_000m, 0.98m)], 0m));
+
+        var (rows, _) = await c.Reports.GetProductBalanceAsync(null, null);
+
+        var flexy = Assert.Single(rows, r => r.ProductName == "Flexy");
+        // Ventes 9 800 (10 000 × 0,98) − coût 9 700 (10 000 × 0,97) = 100.
+        Assert.Equal(100m, flexy.Marge);
+    }
+
+    [Fact]
+    public async Task Product_balance_margin_is_zero_without_sales_and_null_when_cost_is_unknown()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        var cards = (await new ProductService(c.Db).ListAsync()).Single(p => p.Kind == ProductKind.Physical);
+        // Vente d'un produit jamais acheté (coût inconnu) : possible seulement en base puisque l'app bloque
+        // normalement la vente au-delà du stock ; on force la ligne pour vérifier le cas.
+        await using (var ctx = c.Db.CreateDbContext())
+        {
+            ctx.DeliveryNotes.Add(new DeliveryNote
+            {
+                Number = "BL-TEST", Date = DateTime.Today, ClientId = c.Client.Id, Total = 1000m, AmountPaid = 0m,
+                Lines = { new DeliveryLine { ProductId = cards.Id, Quantity = 2m, UnitPrice = 500m, LineTotal = 1000m } },
+            });
+            await ctx.SaveChangesAsync();
+        }
+
+        var (rows, _) = await c.Reports.GetProductBalanceAsync(null, null);
+
+        Assert.Equal(0m, Assert.Single(rows, r => r.ProductName == "Storm").Marge);    // jamais vendu : marge nulle, pas inconnue
+        Assert.Null(Assert.Single(rows, r => r.ProductName == "Cartes Idoom").Marge);  // vendu sans jamais avoir été acheté
+    }
+
+    [Fact]
+    public async Task Cash_summary_counts_client_money_in_and_supplier_money_out_within_the_period()
+    {
+        var c = await SetupAsync(); // achat de 1 000 000, rien payé, aujourd'hui
+        using var _ = c.Db;
+        await new PurchaseService(c.Db).CreateAsync(new PurchaseInput(c.Supplier.Id, DateTime.Today, [new PurchaseLineInput(c.Flexy.Id, 100_000m, 0.97m)], 60_000m));
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [new DeliveryLineInput(c.Flexy.Id, 10_000m, 0.98m)], 5_000m));
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 1_000m)); // encaissement pur
+
+        var (_, cash) = await c.Reports.GetProductBalanceAsync(DateTime.Today, DateTime.Today);
+
+        Assert.Equal(6_000m, cash.TotalVersements); // 5 000 (vente) + 1 000 (encaissement pur)
+        Assert.Equal(60_000m, cash.TotalDepenses);
+        Assert.Equal(-54_000m, cash.Total);
+    }
+
+    [Fact]
+    public async Task Cash_summary_ignores_amounts_outside_the_period()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        await new PurchaseService(c.Db).CreateAsync(new PurchaseInput(c.Supplier.Id, DateTime.Today.AddDays(-10), [new PurchaseLineInput(c.Flexy.Id, 100_000m, 0.97m)], 60_000m));
+
+        var (_, cash) = await c.Reports.GetProductBalanceAsync(DateTime.Today, DateTime.Today);
+
+        Assert.Equal(0m, cash.TotalDepenses);
+        Assert.Equal(0m, cash.TotalVersements);
     }
 }
