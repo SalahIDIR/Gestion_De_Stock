@@ -106,6 +106,15 @@ public class ProductService
                 .ThenByDescending(l => l.LineId).First().UnitCost);
     }
 
+    /// <summary>Valeur totale du stock, tous produits confondus, au dernier prix d'achat connu de chacun.</summary>
+    public async Task<decimal> GetTotalStockValueAsync()
+    {
+        var products = await ListAsync(includeInactive: true);
+        var lastCosts = await GetLastPurchaseCostsAsync();
+        return products.Sum(p => lastCosts.TryGetValue(p.Id, out var cost)
+            ? Math.Round(p.StockBalance * cost, 2, MidpointRounding.AwayFromZero) : 0m);
+    }
+
     public async Task<List<StockMovement>> GetMovementsAsync(int productId)
     {
         await using var db = await _factory.CreateDbContextAsync();

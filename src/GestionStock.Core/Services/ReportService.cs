@@ -135,6 +135,26 @@ public class ReportService
         => (await GetOperationsAsync()).Where(r => r.ProductKind == ProductKind.VirtualCredit).ToList();
 
     /// <summary>
+    /// Argent réellement encaissé et payé entre deux instants précis (« from » exclu, « to » inclus) : sert à
+    /// enchaîner les clôtures de caisse sans jamais compter deux fois une opération, même si deux clôtures ont
+    /// lieu le même jour.
+    /// </summary>
+    public async Task<CashSummary> GetCashSummarySinceAsync(DateTime? from, DateTime to)
+    {
+        await using var db = await _factory.CreateDbContextAsync();
+        bool After(DateTime d) => (from == null || d > from.Value) && d <= to;
+
+        var notes = await db.DeliveryNotes.AsNoTracking().Select(n => new { n.Date, n.AmountPaid }).ToListAsync();
+        var separatePayments = await db.ClientPayments.AsNoTracking().Select(p => new { p.Date, p.Amount }).ToListAsync();
+        var orders = await db.PurchaseOrders.AsNoTracking().Select(o => new { o.Date, o.AmountPaid }).ToListAsync();
+
+        var totalVersements = notes.Where(n => After(n.Date)).Sum(n => n.AmountPaid)
+                               + separatePayments.Where(p => After(p.Date)).Sum(p => p.Amount);
+        var totalDepenses = orders.Where(o => After(o.Date)).Sum(o => o.AmountPaid);
+        return new CashSummary(totalVersements, totalDepenses);
+    }
+
+    /// <summary>
     /// Bilan par produit : stock actuel de chaque produit, et son activité (achats, ventes, marge) sur la période
     /// [from, to] (bornes incluses ; une borne vide n'est pas limitée de ce côté). Accompagné de l'argent réellement
     /// encaissé et dépensé sur la même période.

@@ -22,6 +22,7 @@ public class AppDbContext : DbContext
     public DbSet<ClientPayment> ClientPayments => Set<ClientPayment>();
     public DbSet<ClientProductRate> ClientProductRates => Set<ClientProductRate>();
     public DbSet<SupplierProductRate> SupplierProductRates => Set<SupplierProductRate>();
+    public DbSet<AccountClosing> AccountClosings => Set<AccountClosing>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -73,5 +74,7 @@ public class AppDbContext : DbContext
         b.Entity<SupplierProductRate>().HasIndex(r => new { r.SupplierId, r.ProductId }).IsUnique();
         b.Entity<SupplierProductRate>().HasOne<Supplier>().WithMany().HasForeignKey(r => r.SupplierId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<SupplierProductRate>().HasOne<Product>().WithMany().HasForeignKey(r => r.ProductId).OnDelete(DeleteBehavior.Restrict);
+
+        b.Entity<AccountClosing>().HasIndex(c => c.Date);
     }
 }

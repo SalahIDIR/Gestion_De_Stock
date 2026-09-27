@@ -202,6 +202,39 @@ public class DeliveryLine
     public string? RecipientPhone { get; set; }
 }
 
+/// <summary>
+/// Une clôture de caisse (« Solde des comptes ») : photographie figée de la situation financière à un instant donné,
+/// et point de départ du calcul de la suivante. Toutes les valeurs sont enregistrées telles quelles au moment de la
+/// validation, jamais recalculées après coup.
+/// </summary>
+public class AccountClosing
+{
+    public int Id { get; set; }
+    public DateTime Date { get; set; }
+    /// <summary>Espèce reportée de la clôture précédente (0 pour la toute première).</summary>
+    public decimal PreviousCash { get; set; }
+    /// <summary>Encaissements reçus des clients depuis la clôture précédente.</summary>
+    public decimal TotalRecettes { get; set; }
+    /// <summary>Paiements faits aux fournisseurs depuis la clôture précédente.</summary>
+    public decimal TotalDepenses { get; set; }
+    /// <summary>Espèce actuelle = PreviousCash + TotalRecettes − TotalDepenses.</summary>
+    public decimal Cash { get; set; }
+    public decimal StockValue { get; set; }
+    /// <summary>Somme nette des dettes clients (positive = ils doivent, négative = avoir en leur faveur).</summary>
+    public decimal ClientCredit { get; set; }
+    /// <summary>Somme nette des dettes fournisseurs.</summary>
+    public decimal SupplierCredit { get; set; }
+    /// <summary>Charges prélevées manuellement (ex. nourriture), saisies par l'utilisateur au moment de la clôture.</summary>
+    public decimal Prelevements { get; set; }
+    /// <summary>Nouveau solde = StockValue + ClientCredit + Cash − SupplierCredit − Prelevements.</summary>
+    public decimal Total { get; set; }
+    /// <summary>Total − Total de la clôture précédente (= Total de cette clôture s'il n'y en a pas eu avant).</summary>
+    public decimal Benefice { get; set; }
+    /// <summary>Bénéfice ÷ nombre de jours écoulés depuis la clôture précédente (au moins 1 jour).</summary>
+    public decimal Moyenne { get; set; }
+    public string? Comments { get; set; }
+}
+
 /// <summary>Paiement encaissé sur la dette d'un client (hors paiement fait à la livraison). Conservé pour l'historique ; les nouveaux encaissements sont désormais des bons sans produit (DeliveryNote).</summary>
 public class ClientPayment
 {

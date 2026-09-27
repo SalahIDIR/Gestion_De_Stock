@@ -78,6 +78,7 @@ public partial class App : Application
         services.AddSingleton<PurchaseService>();
         services.AddSingleton<DeliveryService>();
         services.AddSingleton<ReportService>();
+        services.AddSingleton<AccountClosingService>();
         services.AddSingleton<DemoDataService>();
         return services.BuildServiceProvider();
     }
