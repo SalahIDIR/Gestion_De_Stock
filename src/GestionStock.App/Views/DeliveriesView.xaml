@@ -117,8 +117,8 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel>
-                            <TextBlock Text="Total du bon (DA)" Style="{StaticResource FieldLabel}"/>
-                            <TextBlock Text="{Binding Total, StringFormat=N2}" FontSize="20" FontWeight="SemiBold" Margin="0,2,0,0"/>
+                            <TextBlock Text="Total du bon (DA)" Style="{StaticResource FieldLabel}" ToolTip="Montant des lignes, déjà déduit du montant encaissé"/>
+                            <TextBlock Text="{Binding Remaining, StringFormat=N2}" FontSize="20" FontWeight="SemiBold" Margin="0,2,0,0"/>
                         </StackPanel>
                         <StackPanel Grid.Column="2">
                             <TextBlock Text="Montant encaissé maintenant (DA)" Style="{StaticResource FieldLabel}"/>
@@ -126,9 +126,6 @@
                         </StackPanel>
                     </Grid>
                     <StackPanel>
-                        <TextBlock Style="{StaticResource FieldLabel}" Margin="0,0,0,2">
-                            <Run Text="Reste à payer sur ce bon : "/><Run Text="{Binding Remaining, StringFormat=N2, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=" DA"/>
-                        </TextBlock>
                         <TextBlock Style="{StaticResource FieldLabel}" Margin="0,0,0,4">
                             <Run Text="Nouvelle dette du client : "/><Run Text="{Binding NewDebt, StringFormat=N2, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=" DA"/>
                         </TextBlock>

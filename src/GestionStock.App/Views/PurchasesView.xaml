@@ -113,17 +113,14 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel>
-                            <TextBlock Text="Total du bon (DA)" Style="{StaticResource FieldLabel}"/>
-                            <TextBlock Text="{Binding Total, StringFormat=N2}" FontSize="20" FontWeight="SemiBold" Margin="0,2,0,0"/>
+                            <TextBlock Text="Total du bon (DA)" Style="{StaticResource FieldLabel}" ToolTip="Montant des lignes, déjà déduit du montant payé"/>
+                            <TextBlock Text="{Binding Remaining, StringFormat=N2}" FontSize="20" FontWeight="SemiBold" Margin="0,2,0,0"/>
                         </StackPanel>
                         <StackPanel Grid.Column="2">
                             <TextBlock Text="Montant payé (DA)" Style="{StaticResource FieldLabel}"/>
                             <TextBox Text="{Binding PaidText, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0"/>
                         </StackPanel>
                     </Grid>
-                    <TextBlock Style="{StaticResource FieldLabel}" Margin="0,0,0,12">
-                        <Run Text="Reste dû au fournisseur : "/><Run Text="{Binding Remaining, StringFormat=N2, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=" DA"/>
-                    </TextBlock>
                     <WrapPanel>
                         <Button Content="{Binding SaveLabel}" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,6"/>
                         <Button Content="Enregistrer et imprimer" Command="{Binding SaveAndPrintCommand}" Margin="0,0,8,6"/>
