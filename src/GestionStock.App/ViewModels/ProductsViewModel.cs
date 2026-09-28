@@ -119,6 +119,7 @@ public partial class ProductsViewModel : ViewModelBase
     [ObservableProperty] private string _colorHex = "#6B7280";
     [ObservableProperty] private string _countedBalance = "";
     [ObservableProperty] private string _adjustNote = "";
+    [ObservableProperty] private string _adjustPurchaseCost = "";
 
     public string FormTitle => EditId == 0 ? "Nouveau produit" : "Modifier le produit";
 
@@ -186,7 +187,7 @@ public partial class ProductsViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private void OpenAdjust()
     {
-        CountedBalance = AdjustNote = "";
+        CountedBalance = AdjustNote = AdjustPurchaseCost = "";
         IsAdjustOpen = true;
     }
 
@@ -308,10 +309,18 @@ public partial class ProductsViewModel : ViewModelBase
         if (Selected is not { } row) return;
         var counted = ParseDecimal(CountedBalance);
         if (counted == null) { Info("Saisissez le solde compté (un nombre)."); return; }
+
+        decimal? purchaseCost = null;
+        if (!string.IsNullOrWhiteSpace(AdjustPurchaseCost))
+        {
+            purchaseCost = ParseDecimal(AdjustPurchaseCost);
+            if (purchaseCost == null) { Info("Le prix d'achat n'est pas un nombre valide."); return; }
+        }
+
         if (!Confirm($"Fixer le solde de « {row.Name} » à {counted:N2} ?\nUn mouvement de correction sera enregistré.")) return;
 
         var id = row.Product.Id;
-        if (!await TryAsync(() => _service.AdjustStockAsync(id, counted.Value, AdjustNote))) return;
+        if (!await TryAsync(() => _service.AdjustStockAsync(id, counted.Value, AdjustNote, purchaseCost))) return;
         IsAdjustOpen = false;
         await ReloadAndSelectAsync(id);
     }

@@ -163,6 +163,23 @@ public class PurchaseTests
     }
 
     [Fact]
+    public async Task A_manually_set_reference_cost_prefills_the_price_for_a_supplier_who_has_never_bought_the_product()
+    {
+        using var db = await TestDb.CreateAsync();
+        var (supplier, flexy, _) = await SetupAsync(db);
+        var purchases = new PurchaseService(db);
+
+        Assert.DoesNotContain(flexy.Id, (await purchases.GetLastPricesAsync(supplier.Id)).Keys);
+
+        await new ProductService(db).AdjustStockAsync(flexy.Id, 0m, null, purchaseCost: 0.97m);
+        Assert.Equal(0.97m, (await purchases.GetLastPricesAsync(supplier.Id))[flexy.Id]);
+
+        // Un vrai bon d'achat de ce fournisseur fixe désormais son propre tarif, qui prime sur le prix de référence.
+        await purchases.CreateAsync(new PurchaseInput(supplier.Id, DateTime.Today, [new PurchaseLineInput(flexy.Id, 1_000m, 0.985m)], 0m));
+        Assert.Equal(0.985m, (await purchases.GetLastPricesAsync(supplier.Id))[flexy.Id]);
+    }
+
+    [Fact]
     public async Task A_supplier_with_only_an_opening_balance_and_no_bons_still_appears_in_GetDebtsAsync()
     {
         using var db = await TestDb.CreateAsync();

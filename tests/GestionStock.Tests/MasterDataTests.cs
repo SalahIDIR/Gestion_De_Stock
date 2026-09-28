@@ -263,4 +263,37 @@ public class MasterDataTests
         await products.DeleteAsync(ticket.Id);
         Assert.DoesNotContain(await products.ListAsync(), p => p.Name == "Ticket 500");
     }
+
+    [Fact]
+    public async Task Reference_purchase_cost_set_during_a_stock_correction_is_used_until_a_real_purchase_overrides_it()
+    {
+        using var db = await TestDb.CreateAsync();
+        var products = new ProductService(db);
+        var flexy = (await products.ListAsync()).Single(p => p.Name == "Flexy");
+
+        Assert.DoesNotContain(flexy.Id, (await products.GetLastPurchaseCostsAsync()).Keys);
+
+        await products.AdjustStockAsync(flexy.Id, 0m, null, purchaseCost: 0.97m); // stock inchangé, seul le prix est fixé
+        Assert.Empty(await products.GetMovementsAsync(flexy.Id)); // aucun mouvement : le stock n'a pas bougé
+        Assert.Equal(0.97m, (await products.GetLastPurchaseCostsAsync())[flexy.Id]);
+
+        var supplier = await new SupplierService(db).SaveAsync(new Supplier { Reference = "F1", CompanyName = "Grossiste" });
+        await new PurchaseService(db).CreateAsync(new PurchaseInput(
+            supplier.Id, DateTime.Today, [new PurchaseLineInput(flexy.Id, 100_000m, 0.99m)], 0m));
+
+        Assert.Equal(0.99m, (await products.GetLastPurchaseCostsAsync())[flexy.Id]); // un achat réel prime sur le prix de référence
+    }
+
+    [Fact]
+    public async Task Adjusting_stock_rejects_an_invalid_or_too_high_purchase_cost()
+    {
+        using var db = await TestDb.CreateAsync();
+        var products = new ProductService(db);
+        var flexy = (await products.ListAsync()).Single(p => p.Name == "Flexy");
+
+        await Assert.ThrowsAsync<BusinessException>(() => products.AdjustStockAsync(flexy.Id, 0m, null, purchaseCost: 0m));
+        await Assert.ThrowsAsync<BusinessException>(() => products.AdjustStockAsync(flexy.Id, 0m, null, purchaseCost: -1m));
+        // Coefficient de crédit virtuel saisi comme un pourcentage.
+        await Assert.ThrowsAsync<BusinessException>(() => products.AdjustStockAsync(flexy.Id, 0m, null, purchaseCost: 9725m));
+    }
 }

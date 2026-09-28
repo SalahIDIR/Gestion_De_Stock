@@ -68,25 +68,36 @@ public class ProductService
         await db.SaveChangesAsync();
     }
 
-    /// <summary>Correction d'inventaire : enregistre un mouvement d'ajustement pour atteindre le solde compté.</summary>
-    public async Task AdjustStockAsync(int productId, decimal countedBalance, string? note)
+    /// <summary>
+    /// Correction d'inventaire : enregistre un mouvement d'ajustement pour atteindre le solde compté, et peut aussi
+    /// fixer le prix d'achat de référence du produit (laissé à null pour ne pas y toucher).
+    /// </summary>
+    public async Task AdjustStockAsync(int productId, decimal countedBalance, string? note, decimal? purchaseCost = null)
     {
         if (countedBalance < 0) throw new BusinessException("Le solde compté ne peut pas être négatif.");
+        if (purchaseCost is <= 0) throw new BusinessException("Le prix d'achat doit être positif.");
 
         await using var db = await _factory.CreateDbContextAsync();
         var product = await db.Products.FindAsync(productId) ?? throw new BusinessException("Produit introuvable.");
-        var delta = countedBalance - product.StockBalance;
-        if (delta == 0) return;
+        if (purchaseCost is { } cost && product.Kind == ProductKind.VirtualCredit && cost > PurchaseService.MaxVirtualCoefficient)
+            throw new BusinessException($"Le coefficient ({cost}) est trop élevé : saisissez par exemple 0.9725.");
 
-        db.StockMovements.Add(new StockMovement
+        var delta = countedBalance - product.StockBalance;
+        if (delta == 0 && purchaseCost == null) return;
+
+        if (delta != 0)
         {
-            Date = DateTime.Now,
-            ProductId = productId,
-            Quantity = delta,
-            Kind = StockMovementKind.Adjustment,
-            Note = string.IsNullOrWhiteSpace(note) ? "Correction d'inventaire" : note.Trim(),
-        });
-        product.StockBalance = countedBalance;
+            db.StockMovements.Add(new StockMovement
+            {
+                Date = DateTime.Now,
+                ProductId = productId,
+                Quantity = delta,
+                Kind = StockMovementKind.Adjustment,
+                Note = string.IsNullOrWhiteSpace(note) ? "Correction d'inventaire" : note.Trim(),
+            });
+            product.StockBalance = countedBalance;
+        }
+        if (purchaseCost != null) product.ReferencePurchaseCost = purchaseCost;
         await db.SaveChangesAsync();
     }
 
@@ -101,9 +112,16 @@ public class ProductService
             .Join(db.PurchaseOrders, l => l.PurchaseOrderId, o => o.Id,
                 (l, o) => new { l.ProductId, l.UnitCost, o.Date, OrderId = o.Id, LineId = l.Id })
             .ToListAsync();
-        return lines.GroupBy(l => l.ProductId)
+        var costs = lines.GroupBy(l => l.ProductId)
             .ToDictionary(g => g.Key, g => g.OrderByDescending(l => l.Date).ThenByDescending(l => l.OrderId)
                 .ThenByDescending(l => l.LineId).First().UnitCost);
+
+        var references = await db.Products.AsNoTracking().Where(p => p.ReferencePurchaseCost != null)
+            .Select(p => new { p.Id, p.ReferencePurchaseCost }).ToListAsync();
+        foreach (var r in references)
+            if (!costs.ContainsKey(r.Id)) costs[r.Id] = r.ReferencePurchaseCost!.Value;
+
+        return costs;
     }
 
     /// <summary>Valeur totale du stock, tous produits confondus, au dernier prix d'achat connu de chacun.</summary>

@@ -47,8 +47,15 @@ public class PurchaseService
     public async Task<Dictionary<int, decimal>> GetLastPricesAsync(int supplierId)
     {
         await using var db = await _factory.CreateDbContextAsync();
-        return await db.SupplierProductRates.AsNoTracking().Where(r => r.SupplierId == supplierId)
+        var rates = await db.SupplierProductRates.AsNoTracking().Where(r => r.SupplierId == supplierId)
             .ToDictionaryAsync(r => r.ProductId, r => r.Rate);
+
+        var references = await db.Products.AsNoTracking().Where(p => p.ReferencePurchaseCost != null)
+            .Select(p => new { p.Id, p.ReferencePurchaseCost }).ToListAsync();
+        foreach (var r in references)
+            if (!rates.ContainsKey(r.Id)) rates[r.Id] = r.ReferencePurchaseCost!.Value;
+
+        return rates;
     }
 
     /// <summary>Crée un bon d'achat, ajoute les quantités au stock et écrit le journal, le tout dans une transaction.</summary>

@@ -211,6 +211,9 @@
                     <TextBox Text="{Binding CountedBalance, UpdateSourceTrigger=PropertyChanged}"/>
                     <TextBlock Text="Motif (facultatif)" Style="{StaticResource FieldLabel}"/>
                     <TextBox Text="{Binding AdjustNote, UpdateSourceTrigger=PropertyChanged}"/>
+                    <TextBlock Text="Prix d'achat (facultatif : coefficient ou prix unitaire pris en compte au prochain achat tant qu'aucun bon d'achat réel ne l'a fixé)"
+                               Style="{StaticResource FieldLabel}" TextWrapping="Wrap"/>
+                    <TextBox Text="{Binding AdjustPurchaseCost, UpdateSourceTrigger=PropertyChanged}"/>
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                         <Button Content="Corriger le stock" Command="{Binding AdjustCommand}" Style="{StaticResource PrimaryButton}"/>
                         <Button Content="Annuler" Command="{Binding CloseAdjustCommand}"/>

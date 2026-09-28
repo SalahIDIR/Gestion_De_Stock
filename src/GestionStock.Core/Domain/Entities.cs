@@ -137,6 +137,11 @@ public class Product
     public bool IsActive { get; set; } = true;
     /// <summary>Couleur d'affichage dans le rapport des opérations (#RRGGBB).</summary>
     public string ColorHex { get; set; } = "#6B7280";
+    /// <summary>
+    /// Prix d'achat de référence saisi manuellement (ex. lors d'une correction de stock). Proposé comme prix par défaut
+    /// au prochain achat et dans la valorisation du stock tant qu'aucun bon d'achat réel n'a fixé de tarif.
+    /// </summary>
+    public decimal? ReferencePurchaseCost { get; set; }
 
     public override string ToString() => Name;
 }
