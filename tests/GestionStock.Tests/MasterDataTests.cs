@@ -231,6 +231,12 @@ public class MasterDataTests
         Assert.Equal("Ooredoo", ProductOperators.OperatorNameFor("Storm"));
         Assert.Equal("Mobilis", ProductOperators.OperatorNameFor("erselli"));
         Assert.Null(ProductOperators.OperatorNameFor("Cartes Idoom"));
+        Assert.Equal("Djezzy", ProductOperators.OperatorNameFor("FLEXY DJEZZY"));
+        Assert.Equal("Ooredoo", ProductOperators.OperatorNameFor("STORM NEDJMA"));
+        Assert.Equal("Mobilis", ProductOperators.OperatorNameFor("ERSELLI MOBILIS"));
+        Assert.Equal("Djezzy", ProductOperators.OperatorNameFor("IZI DJEZZY FLEXY"));
+        Assert.Equal("Ooredoo", ProductOperators.OperatorNameFor("IZI OOREDOO STORM"));
+        Assert.Equal("Mobilis", ProductOperators.OperatorNameFor("IZI MOBILIS ARSSELLI"));
     }
 
     [Fact]

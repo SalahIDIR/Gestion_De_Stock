@@ -57,6 +57,12 @@ public static class ProductOperators
         ["Flexy"] = "Djezzy",
         ["Storm"] = "Ooredoo",
         ["Erselli"] = "Mobilis",
+        ["FLEXY DJEZZY"] = "Djezzy",
+        ["STORM NEDJMA"] = "Ooredoo",
+        ["ERSELLI MOBILIS"] = "Mobilis",
+        ["IZI DJEZZY FLEXY"] = "Djezzy",
+        ["IZI OOREDOO STORM"] = "Ooredoo",
+        ["IZI MOBILIS ARSSELLI"] = "Mobilis",
     };
 
     /// <summary>Nom de l'opérateur du produit, ou null si le produit n'est pas un des crédits connus.</summary>
