@@ -307,8 +307,13 @@ public partial class ProductsViewModel : ViewModelBase
     private async Task AdjustAsync()
     {
         if (Selected is not { } row) return;
-        var counted = ParseDecimal(CountedBalance);
-        if (counted == null) { Info("Saisissez le solde compté (un nombre)."); return; }
+
+        decimal? counted = null;
+        if (!string.IsNullOrWhiteSpace(CountedBalance))
+        {
+            counted = ParseDecimal(CountedBalance);
+            if (counted == null) { Info("Le solde compté n'est pas un nombre valide."); return; }
+        }
 
         decimal? purchaseCost = null;
         if (!string.IsNullOrWhiteSpace(AdjustPurchaseCost))
@@ -317,10 +322,16 @@ public partial class ProductsViewModel : ViewModelBase
             if (purchaseCost == null) { Info("Le prix d'achat n'est pas un nombre valide."); return; }
         }
 
-        if (!Confirm($"Fixer le solde de « {row.Name} » à {counted:N2} ?\nUn mouvement de correction sera enregistré.")) return;
+        // Un champ laissé vide garde l'ancienne valeur, sans la redemander.
+        if (counted == null && purchaseCost == null) { IsAdjustOpen = false; return; }
+
+        var message = counted != null
+            ? $"Fixer le solde de « {row.Name} » à {counted:N2} ?\nUn mouvement de correction sera enregistré."
+            : $"Mettre à jour le prix d'achat de « {row.Name} » ?";
+        if (!Confirm(message)) return;
 
         var id = row.Product.Id;
-        if (!await TryAsync(() => _service.AdjustStockAsync(id, counted.Value, AdjustNote, purchaseCost))) return;
+        if (!await TryAsync(() => _service.AdjustStockAsync(id, counted ?? row.StockBalance, AdjustNote, purchaseCost))) return;
         IsAdjustOpen = false;
         await ReloadAndSelectAsync(id);
     }
