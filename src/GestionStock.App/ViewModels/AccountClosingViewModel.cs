@@ -29,16 +29,22 @@ public partial class AccountClosingViewModel : ViewModelBase
     [ObservableProperty] private decimal _stockValue;
     [ObservableProperty] private decimal _clientCredit;
     [ObservableProperty] private decimal _supplierCredit;
-    [ObservableProperty] private decimal _cash;
     [ObservableProperty] private decimal _totalRecettes;
     [ObservableProperty] private decimal _totalDepenses;
 
     [ObservableProperty] private string _prelevementsText = "0";
     [ObservableProperty] private string _comments = "";
 
+    /// <summary>Espèce calculée automatiquement (ancien espèce + recettes − dépenses) au dernier chargement.</summary>
+    private decimal _autoCash;
+    [ObservableProperty] private string _cashText = "";
+
     public string PreviousDateText => PreviousDate?.ToString("dd/MM/yyyy HH:mm") ?? "Aucune (première clôture)";
 
     public decimal? Prelevements => ParseDecimal(PrelevementsText);
+    /// <summary>Espèce : calculée automatiquement, mais modifiable à la main ; la valeur saisie remplace alors le calcul
+    /// partout (Total, Bénéfice, Moyenne, et dans la clôture enregistrée).</summary>
+    public decimal Cash => ParseDecimal(CashText) ?? _autoCash;
     public decimal Total => StockValue + ClientCredit + Cash - SupplierCredit - (Prelevements ?? 0m);
     public decimal Benefice => Total - PreviousTotal;
 
@@ -52,10 +58,12 @@ public partial class AccountClosingViewModel : ViewModelBase
     }
 
     partial void OnPrelevementsTextChanged(string value) => RefreshComputed();
+    partial void OnCashTextChanged(string value) => RefreshComputed();
 
     private void RefreshComputed()
     {
         OnPropertyChanged(nameof(Prelevements));
+        OnPropertyChanged(nameof(Cash));
         OnPropertyChanged(nameof(Total));
         OnPropertyChanged(nameof(Benefice));
         OnPropertyChanged(nameof(Moyenne));
@@ -72,7 +80,8 @@ public partial class AccountClosingViewModel : ViewModelBase
             PreviousCash = preview.PreviousCash;
             TotalRecettes = preview.TotalRecettes;
             TotalDepenses = preview.TotalDepenses;
-            Cash = preview.Cash;
+            _autoCash = preview.Cash;
+            CashText = _autoCash.ToString("0.##");
             StockValue = preview.StockValue;
             ClientCredit = preview.ClientCredit;
             SupplierCredit = preview.SupplierCredit;
@@ -84,12 +93,13 @@ public partial class AccountClosingViewModel : ViewModelBase
     [RelayCommand]
     private async Task RefreshAsync() => await LoadAsync();
 
-    /// <summary>Remet le prélèvement et le commentaire à zéro sans rien enregistrer (« Différer »).</summary>
+    /// <summary>Remet le prélèvement, le commentaire et l'espèce à leurs valeurs de départ sans rien enregistrer (« Différer »).</summary>
     [RelayCommand]
     private void Differ()
     {
         PrelevementsText = "0";
         Comments = "";
+        CashText = _autoCash.ToString("0.##");
     }
 
     [RelayCommand]
@@ -101,7 +111,7 @@ public partial class AccountClosingViewModel : ViewModelBase
             return;
 
         AccountClosing? saved = null;
-        var ok = await TryAsync(async () => saved = await _closings.ValidateAsync(Now, prelev.Value, Comments));
+        var ok = await TryAsync(async () => saved = await _closings.ValidateAsync(Now, prelev.Value, Comments, Cash));
         if (!ok || saved == null) return;
 
         Differ();

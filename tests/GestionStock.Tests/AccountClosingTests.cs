@@ -113,6 +113,22 @@ public class AccountClosingTests
     }
 
     [Fact]
+    public async Task A_manually_entered_cash_overrides_the_computed_one_and_flows_into_total_and_benefice()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 10_000m)); // encaissement pur
+
+        var preview = await c.Closings.PreviewAsync(DateTime.Now);
+        Assert.Equal(10_000m, preview.Cash); // valeur auto-calculée, pour comparaison
+
+        var closing = await c.Closings.ValidateAsync(DateTime.Now, prelevements: 0m, comments: null, cashOverride: 7_000m);
+
+        Assert.Equal(7_000m, closing.Cash); // la valeur saisie à la main remplace celle calculée
+        Assert.Equal(preview.StockValue + preview.ClientCredit + 7_000m - preview.SupplierCredit, closing.Total);
+    }
+
+    [Fact]
     public async Task Moyenne_divides_the_benefice_by_days_since_the_previous_closing()
     {
         var c = await SetupAsync();

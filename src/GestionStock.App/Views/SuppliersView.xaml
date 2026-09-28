@@ -25,6 +25,9 @@
                         <TextBox Text="{Binding DebtMax, UpdateSourceTrigger=PropertyChanged}" Margin="0"/>
                     </StackPanel>
                 </Grid>
+                <TextBlock HorizontalAlignment="Right" Margin="0,0,0,8">
+                    <Run Text="Dettes affichées : "/><Run Text="{Binding TotalDisplayedDebt, StringFormat=N2, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=" DA"/>
+                </TextBlock>
             </StackPanel>
             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
                 <Button Content="+ Nouveau fournisseur" Command="{Binding OpenFormCommand}" Style="{StaticResource PrimaryButton}"/>

@@ -61,13 +61,18 @@ public class AccountClosingService
             stockValue, clientCredit, supplierCredit);
     }
 
-    /// <summary>Enregistre définitivement une nouvelle clôture ; elle devient le point de départ de la suivante.</summary>
-    public async Task<AccountClosing> ValidateAsync(DateTime now, decimal prelevements, string? comments)
+    /// <summary>
+    /// Enregistre définitivement une nouvelle clôture ; elle devient le point de départ de la suivante.
+    /// <paramref name="cashOverride"/> permet de remplacer l'espèce calculée automatiquement par une valeur saisie à la main
+    /// (le reste — stock, crédits, prélèvements — n'est jamais modifiable).
+    /// </summary>
+    public async Task<AccountClosing> ValidateAsync(DateTime now, decimal prelevements, string? comments, decimal? cashOverride = null)
     {
         if (prelevements < 0) throw new BusinessException("Le prélèvement ne peut pas être négatif.");
 
         var preview = await PreviewAsync(now);
-        var total = preview.StockValue + preview.ClientCredit + preview.Cash - preview.SupplierCredit - prelevements;
+        var cash = cashOverride ?? preview.Cash;
+        var total = preview.StockValue + preview.ClientCredit + cash - preview.SupplierCredit - prelevements;
         var benefice = total - preview.PreviousTotal;
         var days = preview.PreviousDate.HasValue ? Math.Max(1m, (decimal)(now - preview.PreviousDate.Value).TotalDays) : 1m;
         var moyenne = Math.Round(benefice / days, 2, MidpointRounding.AwayFromZero);
@@ -84,7 +89,7 @@ public class AccountClosingService
             PreviousCash = preview.PreviousCash,
             TotalRecettes = preview.TotalRecettes,
             TotalDepenses = preview.TotalDepenses,
-            Cash = preview.Cash,
+            Cash = cash,
             StockValue = preview.StockValue,
             ClientCredit = preview.ClientCredit,
             SupplierCredit = preview.SupplierCredit,

@@ -28,6 +28,9 @@ public partial class SuppliersViewModel : ViewModelBase
 
     public ObservableCollection<SupplierRow> Items { get; } = new();
 
+    /// <summary>Dette totale des fournisseurs actuellement affichés (après recherche et filtres).</summary>
+    [ObservableProperty] private decimal _totalDisplayedDebt;
+
     [ObservableProperty] private string _search = "";
     [ObservableProperty] private string _debtMin = "";
     [ObservableProperty] private string _debtMax = "";
@@ -101,10 +104,12 @@ public partial class SuppliersViewModel : ViewModelBase
                 || s.Reference.Contains(term, StringComparison.CurrentCultureIgnoreCase))
             .Select(s => new SupplierRow(s, _debts.GetValueOrDefault(s.Id)))
             .Where(r => min == null || r.Debt >= min)
-            .Where(r => max == null || r.Debt <= max);
+            .Where(r => max == null || r.Debt <= max)
+            .ToList();
 
         Items.Clear();
         foreach (var r in rows) Items.Add(r);
+        TotalDisplayedDebt = rows.Sum(r => r.Debt);
     }
 
     /// <summary>Vide le formulaire pour saisir un nouveau fournisseur.</summary>
