@@ -43,6 +43,7 @@ public partial class SuppliersViewModel : ViewModelBase
     [ObservableProperty] private string _address = "";
     [ObservableProperty] private string _phone1 = "";
     [ObservableProperty] private string _phone2 = "";
+    [ObservableProperty] private string _openingBalance = "";
 
     public string FormTitle => EditId == 0 ? "Nouveau fournisseur" : "Modifier le fournisseur";
 
@@ -74,6 +75,7 @@ public partial class SuppliersViewModel : ViewModelBase
         Address = s.Address ?? "";
         Phone1 = s.Phone1 ?? "";
         Phone2 = s.Phone2 ?? "";
+        OpeningBalance = s.OpeningBalance == 0 ? "" : s.OpeningBalance.ToString("0.##");
         IsFormOpen = true;
     }
 
@@ -110,16 +112,23 @@ public partial class SuppliersViewModel : ViewModelBase
     private void New()
     {
         EditId = 0;
-        Reference = CompanyName = Address = Phone1 = Phone2 = "";
+        Reference = CompanyName = Address = Phone1 = Phone2 = OpeningBalance = "";
     }
 
     [RelayCommand]
     private async Task SaveAsync()
     {
+        var opening = string.IsNullOrWhiteSpace(OpeningBalance) ? 0m : ParseDecimal(OpeningBalance);
+        if (opening == null)
+        {
+            Info("Le solde initial n'est pas un nombre valide.");
+            return;
+        }
+
         var ok = await TryAsync(async () => await _service.SaveAsync(new Supplier
         {
             Id = EditId, Reference = Reference, CompanyName = CompanyName,
-            Address = Address, Phone1 = Phone1, Phone2 = Phone2,
+            Address = Address, Phone1 = Phone1, Phone2 = Phone2, OpeningBalance = opening.Value,
         }));
         if (!ok) return;
         New();

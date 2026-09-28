@@ -144,4 +144,32 @@ public class PurchaseTests
         Assert.Equal(57_000m, debts[supplier.Id]);
         await Assert.ThrowsAsync<BusinessException>(() => suppliers.DeleteAsync(supplier.Id));
     }
+
+    [Fact]
+    public async Task Opening_balance_adds_to_the_debt_computed_from_real_purchases()
+    {
+        using var db = await TestDb.CreateAsync();
+        var (supplier, flexy, _) = await SetupAsync(db);
+        var suppliers = new SupplierService(db);
+        var purchases = new PurchaseService(db);
+
+        await suppliers.SaveAsync(new Supplier { Id = supplier.Id, Reference = supplier.Reference, CompanyName = supplier.CompanyName, OpeningBalance = 50_000m });
+
+        Assert.Equal(50_000m, (await suppliers.GetDebtsAsync())[supplier.Id]);
+
+        await purchases.CreateAsync(new PurchaseInput(supplier.Id, DateTime.Today, [new PurchaseLineInput(flexy.Id, 100_000m, 0.97m)], 40_000m)); // +57 000 de dette réelle
+
+        Assert.Equal(107_000m, (await suppliers.GetDebtsAsync())[supplier.Id]);
+    }
+
+    [Fact]
+    public async Task A_supplier_with_only_an_opening_balance_and_no_bons_still_appears_in_GetDebtsAsync()
+    {
+        using var db = await TestDb.CreateAsync();
+        var supplier = await new SupplierService(db).SaveAsync(new Supplier { Reference = "F9", CompanyName = "Ancien fournisseur", OpeningBalance = 12_345m });
+
+        var debts = await new SupplierService(db).GetDebtsAsync();
+
+        Assert.Equal(12_345m, debts[supplier.Id]);
+    }
 }

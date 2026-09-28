@@ -16,13 +16,18 @@ public class SupplierService
         return await db.Suppliers.AsNoTracking().OrderBy(s => s.CompanyName).ToListAsync();
     }
 
-    /// <summary>Dette envers chaque fournisseur (achats non payés), clé = SupplierId.</summary>
+    /// <summary>Dette envers chaque fournisseur (solde initial + achats non payés), clé = SupplierId.</summary>
     public async Task<Dictionary<int, decimal>> GetDebtsAsync()
     {
         await using var db = await _factory.CreateDbContextAsync();
+        var openingBalances = await db.Suppliers.AsNoTracking().Select(s => new { s.Id, s.OpeningBalance }).ToListAsync();
         var rows = await db.PurchaseOrders.AsNoTracking()
             .Select(p => new { p.SupplierId, p.Total, p.AmountPaid }).ToListAsync();
-        return rows.GroupBy(r => r.SupplierId).ToDictionary(g => g.Key, g => g.Sum(r => r.Total - r.AmountPaid));
+
+        var debts = openingBalances.ToDictionary(s => s.Id, s => s.OpeningBalance);
+        foreach (var group in rows.GroupBy(r => r.SupplierId))
+            debts[group.Key] = debts.GetValueOrDefault(group.Key) + group.Sum(r => r.Total - r.AmountPaid);
+        return debts;
     }
 
     public async Task<Supplier> SaveAsync(Supplier input)
@@ -52,6 +57,7 @@ public class SupplierService
         entity.Address = Clean(input.Address);
         entity.Phone1 = Clean(input.Phone1);
         entity.Phone2 = Clean(input.Phone2);
+        entity.OpeningBalance = input.OpeningBalance;
         await db.SaveChangesAsync();
         return entity;
     }

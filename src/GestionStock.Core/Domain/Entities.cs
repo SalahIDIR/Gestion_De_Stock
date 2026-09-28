@@ -72,6 +72,11 @@ public class Supplier
     public string? Address { get; set; }
     public string? Phone1 { get; set; }
     public string? Phone2 { get; set; }
+    /// <summary>
+    /// Dette (positive) ou avoir (négatif) repris tel quel d'avant l'utilisation du logiciel. S'ajoute à la dette
+    /// calculée à partir des vrais bons d'achat ; ne provient d'aucun bon et n'apparaît dans aucun rapport.
+    /// </summary>
+    public decimal OpeningBalance { get; set; }
 
     public override string ToString() => CompanyName;
 }

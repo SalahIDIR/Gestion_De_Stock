@@ -76,6 +76,8 @@
                     <TextBox Text="{Binding Phone1, UpdateSourceTrigger=PropertyChanged}"/>
                     <TextBlock Text="Téléphone 2" Style="{StaticResource FieldLabel}"/>
                     <TextBox Text="{Binding Phone2, UpdateSourceTrigger=PropertyChanged}"/>
+                    <TextBlock Text="Solde initial en DA (dette reprise d'avant le logiciel ; négatif = avoir)" Style="{StaticResource FieldLabel}"/>
+                    <TextBox Text="{Binding OpeningBalance, UpdateSourceTrigger=PropertyChanged}"/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                         <Button Content="Enregistrer" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButton}"/>
