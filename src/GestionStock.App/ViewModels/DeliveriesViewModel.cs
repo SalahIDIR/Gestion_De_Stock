@@ -74,7 +74,6 @@ public record DeliveryRow(DeliveryNote Note)
     public DateTime Date => Note.Date;
     public string ClientName => Note.Client?.Name ?? "";
     public bool IsPaymentOnly => Note.Lines.Count == 0;
-    public decimal Total => Note.Total;
     public decimal Remaining => Note.Remaining;
 }
 
@@ -551,8 +550,7 @@ public partial class DeliveriesViewModel : ViewModelBase
     private void Print()
     {
         PrintHelper.PrintTable("Bons de livraison et encaissements",
-            ["N°", "Date", "Client", "Total (DA)", "Reste (DA)"],
-            History.Select(r => new[] { r.Number, r.Date.ToString("dd/MM/yyyy"), r.ClientName,
-                r.Total.ToString("N2"), r.Remaining.ToString("N2") }).ToList());
+            ["N°", "Date", "Client", "Total (DA)"],
+            History.Select(r => new[] { r.Number, r.Date.ToString("dd/MM/yyyy"), r.ClientName, r.Remaining.ToString("N2") }).ToList());
     }
 }

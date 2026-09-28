@@ -55,8 +55,7 @@
                     <DataGridTextColumn Header="N°" Binding="{Binding Number}" Width="95"/>
                     <DataGridTextColumn Header="Date" Binding="{Binding Date, StringFormat=dd/MM/yyyy HH:mm}" Width="120"/>
                     <DataGridTextColumn Header="Client" Binding="{Binding ClientName}" Width="*"/>
-                    <DataGridTextColumn Header="Total (DA)" Binding="{Binding Total, StringFormat=N2}" Width="105"/>
-                    <DataGridTextColumn Header="Reste (DA)" Binding="{Binding Remaining, StringFormat=N2}" Width="105"/>
+                    <DataGridTextColumn Header="Total (DA)" Binding="{Binding Remaining, StringFormat=N2}" Width="105"/>
                 </DataGrid.Columns>
             </DataGrid>
             <StackPanel Grid.Row="4">

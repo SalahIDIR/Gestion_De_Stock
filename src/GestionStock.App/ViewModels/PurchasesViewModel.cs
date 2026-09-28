@@ -57,7 +57,6 @@ public record PurchaseRow(PurchaseOrder Order)
     public string Number => Order.Number;
     public DateTime Date => Order.Date;
     public string SupplierName => Order.Supplier?.CompanyName ?? "";
-    public decimal Total => Order.Total;
     public decimal Remaining => Order.Remaining;
 }
 
@@ -386,7 +385,7 @@ public partial class PurchasesViewModel : ViewModelBase
     private void Print()
     {
         PrintHelper.PrintTable("Bons d'achat",
-            ["N°", "Date", "Fournisseur", "Total (DA)", "Reste dû (DA)"],
-            History.Select(r => new[] { r.Number, r.Date.ToString("dd/MM/yyyy"), r.SupplierName, r.Total.ToString("N2"), r.Remaining.ToString("N2") }).ToList());
+            ["N°", "Date", "Fournisseur", "Total (DA)"],
+            History.Select(r => new[] { r.Number, r.Date.ToString("dd/MM/yyyy"), r.SupplierName, r.Remaining.ToString("N2") }).ToList());
     }
 }
