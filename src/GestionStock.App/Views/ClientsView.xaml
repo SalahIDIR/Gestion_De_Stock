@@ -125,6 +125,8 @@
                             <TextBox Text="{Binding Phone, UpdateSourceTrigger=PropertyChanged}"/>
                             <TextBlock Text="Plafond de dette en DA (vide = aucun plafond)" Style="{StaticResource FieldLabel}"/>
                             <TextBox Text="{Binding CreditLimit, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Solde initial en DA (dette reprise d'avant le logiciel ; négatif = avoir)" Style="{StaticResource FieldLabel}" TextWrapping="Wrap"/>
+                            <TextBox Text="{Binding OpeningBalance, UpdateSourceTrigger=PropertyChanged}"/>
 
                             <TextBlock Text="Puces de réception du crédit" Style="{StaticResource Section}"/>
                             <ItemsControl ItemsSource="{Binding Chips}">

@@ -56,6 +56,7 @@ public class ClientService
         entity.City = Clean(input.City);
         entity.Phone = Clean(input.Phone);
         entity.CreditLimit = input.CreditLimit;
+        entity.OpeningBalance = input.OpeningBalance;
 
         entity.Chips.Clear();
         foreach (var (operatorId, phone, slot) in chips)

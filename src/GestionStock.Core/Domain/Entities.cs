@@ -85,6 +85,11 @@ public class Client
     public string? Phone { get; set; }
     /// <summary>Plafond de dette au-delà duquel les bons de livraison sont bloqués. 0 = aucun plafond.</summary>
     public decimal CreditLimit { get; set; }
+    /// <summary>
+    /// Dette (positive) ou avoir (négatif) repris tel quel d'avant l'utilisation du logiciel. S'ajoute à la dette
+    /// calculée à partir des vraies ventes et paiements ; ne provient d'aucun bon et n'apparaît dans aucun rapport.
+    /// </summary>
+    public decimal OpeningBalance { get; set; }
     public List<ClientChip> Chips { get; set; } = new();
 
     public override string ToString() => Name;

@@ -282,4 +282,45 @@ public class DeliveryTests
         var afterPayment = (await c.Deliveries.GetLastActivityDatesAsync())[c.Client.Id];
         Assert.Equal(new DateTime(2026, 1, 20), afterPayment);
     }
+
+    [Fact]
+    public async Task Opening_balance_adds_to_the_debt_computed_from_real_sales_and_payments()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        await new ClientService(c.Db).SaveAsync(new Client { Id = c.Client.Id, Name = c.Client.Name, OpeningBalance = 50_000m });
+
+        Assert.Equal(50_000m, await c.Deliveries.GetClientDebtAsync(c.Client.Id));
+        Assert.Equal(50_000m, (await c.Deliveries.GetDebtsAsync())[c.Client.Id]);
+
+        await c.Deliveries.CreateAsync(Bon(c, 10_000m, 1m)); // +10 000 de dette réelle
+
+        Assert.Equal(60_000m, await c.Deliveries.GetClientDebtAsync(c.Client.Id));
+        Assert.Equal(60_000m, (await c.Deliveries.GetDebtsAsync())[c.Client.Id]);
+    }
+
+    [Fact]
+    public async Task Opening_balance_can_be_negative_and_still_counts_toward_the_credit_limit()
+    {
+        var c = await SetupAsync(creditLimit: 10_000m);
+        using var _ = c.Db;
+        await new ClientService(c.Db).SaveAsync(new Client { Id = c.Client.Id, Name = c.Client.Name, CreditLimit = 10_000m, OpeningBalance = -5_000m });
+
+        Assert.Equal(-5_000m, await c.Deliveries.GetClientDebtAsync(c.Client.Id));
+
+        await c.Deliveries.CreateAsync(Bon(c, 15_000m, 1m)); // dette = -5 000 + 15 000 = 10 000, pile le plafond
+        Assert.Equal(10_000m, await c.Deliveries.GetClientDebtAsync(c.Client.Id));
+        await Assert.ThrowsAsync<BusinessException>(() => c.Deliveries.CreateAsync(Bon(c, 100m, 1m))); // dépasserait le plafond
+    }
+
+    [Fact]
+    public async Task A_client_with_only_an_opening_balance_and_no_bons_still_appears_in_GetDebtsAsync()
+    {
+        using var db = await TestDb.CreateAsync();
+        var client = await new ClientService(db).SaveAsync(new Client { Name = "Ancien client", OpeningBalance = 12_345m });
+
+        var debts = await new DeliveryService(db).GetDebtsAsync();
+
+        Assert.Equal(12_345m, debts[client.Id]);
+    }
 }

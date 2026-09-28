@@ -49,16 +49,19 @@ public class DeliveryService
         return await DebtOfAsync(db, clientId);
     }
 
-    /// <summary>Dette de chaque client ayant des bons ou paiements, clé = ClientId.</summary>
+    /// <summary>Dette de chaque client (avec son solde initial), clé = ClientId.</summary>
     public async Task<Dictionary<int, decimal>> GetDebtsAsync()
     {
         await using var db = await _factory.CreateDbContextAsync();
+        var openingBalances = await db.Clients.AsNoTracking().Select(c => new { c.Id, c.OpeningBalance }).ToListAsync();
         var notes = await db.DeliveryNotes.AsNoTracking()
             .Select(n => new { n.ClientId, n.Total, n.AmountPaid }).ToListAsync();
         var payments = await db.ClientPayments.AsNoTracking()
             .Select(p => new { p.ClientId, p.Amount }).ToListAsync();
 
-        var debts = notes.GroupBy(n => n.ClientId).ToDictionary(g => g.Key, g => g.Sum(n => n.Total - n.AmountPaid));
+        var debts = openingBalances.ToDictionary(c => c.Id, c => c.OpeningBalance);
+        foreach (var group in notes.GroupBy(n => n.ClientId))
+            debts[group.Key] = debts.GetValueOrDefault(group.Key) + group.Sum(n => n.Total - n.AmountPaid);
         foreach (var p in payments)
             debts[p.ClientId] = debts.GetValueOrDefault(p.ClientId) - p.Amount;
         return debts;
@@ -406,10 +409,12 @@ public class DeliveryService
 
     private static async Task<decimal> DebtOfAsync(AppDbContext db, int clientId)
     {
+        var openingBalance = await db.Clients.AsNoTracking().Where(c => c.Id == clientId)
+            .Select(c => c.OpeningBalance).FirstOrDefaultAsync();
         var notes = await db.DeliveryNotes.AsNoTracking().Where(n => n.ClientId == clientId)
             .Select(n => new { n.Total, n.AmountPaid }).ToListAsync();
         var payments = await db.ClientPayments.AsNoTracking().Where(p => p.ClientId == clientId)
             .Select(p => p.Amount).ToListAsync();
-        return notes.Sum(n => n.Total - n.AmountPaid) - payments.Sum();
+        return openingBalance + notes.Sum(n => n.Total - n.AmountPaid) - payments.Sum();
     }
 }

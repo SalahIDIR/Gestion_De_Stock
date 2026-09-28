@@ -87,6 +87,7 @@ public partial class ClientsViewModel : ViewModelBase
     [ObservableProperty] private string _city = "";
     [ObservableProperty] private string _phone = "";
     [ObservableProperty] private string _creditLimit = "";
+    [ObservableProperty] private string _openingBalance = "";
     [ObservableProperty] private decimal _selectedDebt;
     [ObservableProperty] private decimal _totalDisplayedDebt;
 
@@ -127,6 +128,7 @@ public partial class ClientsViewModel : ViewModelBase
         City = client.City ?? "";
         Phone = client.Phone ?? "";
         CreditLimit = client.CreditLimit == 0 ? "" : client.CreditLimit.ToString("0.##");
+        OpeningBalance = client.OpeningBalance == 0 ? "" : client.OpeningBalance.ToString("0.##");
         SelectedDebt = value.Debt;
         foreach (var chip in Chips) chip.LoadFrom(client.Chips.Where(c => c.OperatorId == chip.Operator.Id));
         IsFormOpen = true;
@@ -189,7 +191,7 @@ public partial class ClientsViewModel : ViewModelBase
     private void New()
     {
         EditId = 0;
-        Name = Address = City = Phone = CreditLimit = "";
+        Name = Address = City = Phone = CreditLimit = OpeningBalance = "";
         SelectedDebt = 0;
         foreach (var chip in Chips) chip.Reset();
     }
@@ -217,10 +219,17 @@ public partial class ClientsViewModel : ViewModelBase
             Info("Le plafond de crédit n'est pas un nombre valide.");
             return;
         }
+        var opening = string.IsNullOrWhiteSpace(OpeningBalance) ? 0m : ParseDecimal(OpeningBalance);
+        if (opening == null)
+        {
+            Info("Le solde initial n'est pas un nombre valide.");
+            return;
+        }
 
         var client = new Client
         {
-            Id = EditId, Name = Name, Address = Address, City = City, Phone = Phone, CreditLimit = limit.Value,
+            Id = EditId, Name = Name, Address = Address, City = City, Phone = Phone,
+            CreditLimit = limit.Value, OpeningBalance = opening.Value,
         };
         foreach (var chip in Chips)
         {
