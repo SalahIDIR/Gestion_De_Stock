@@ -218,7 +218,7 @@ public class DeliveryTests
     }
 
     [Fact]
-    public async Task Payment_only_bon_must_be_positive_but_may_exceed_the_debt()
+    public async Task Payment_only_bon_cannot_be_zero_but_may_exceed_the_debt()
     {
         var c = await SetupAsync();
         using var _ = c.Db;
@@ -227,6 +227,30 @@ public class DeliveryTests
         await Assert.ThrowsAsync<BusinessException>(() => c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 0m)));
         await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 1_500m));
         Assert.Equal(-500m, await c.Deliveries.GetClientDebtAsync(c.Client.Id)); // avoir en faveur du client
+    }
+
+    [Fact]
+    public async Task A_negative_amount_on_a_payment_only_bon_is_money_given_to_the_client_and_increases_debt()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+
+        var note = await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], -5_000m));
+
+        Assert.Equal(0m, note.Total);
+        Assert.Equal(-5_000m, note.AmountPaid);
+        Assert.Equal(5_000m, note.Remaining);
+        Assert.Equal(5_000m, await c.Deliveries.GetClientDebtAsync(c.Client.Id));
+    }
+
+    [Fact]
+    public async Task A_negative_amount_on_a_payment_only_bon_still_respects_the_credit_limit()
+    {
+        var c = await SetupAsync(creditLimit: 3_000m);
+        using var _ = c.Db;
+
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], -3_000m)); // dette = plafond, pile accepté
+        await Assert.ThrowsAsync<BusinessException>(() => c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], -1m)));
     }
 
     [Fact]

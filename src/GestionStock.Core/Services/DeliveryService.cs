@@ -105,7 +105,8 @@ public class DeliveryService
     /// <summary>
     /// Crée un bon de livraison : vérifie le stock et le plafond du client, retire les quantités du stock
     /// et écrit le journal, le tout dans une transaction. Un bon sans aucune ligne est un « bon d'encaissement » :
-    /// il ne contient que le montant encaissé et réduit la dette du client d'autant, sans toucher au stock.
+    /// il ne contient que le montant encaissé (positif) ou donné au client (négatif) et modifie sa dette d'autant,
+    /// sans toucher au stock.
     /// </summary>
     public async Task<DeliveryNote> CreateAsync(DeliveryInput input)
     {
@@ -121,9 +122,10 @@ public class DeliveryService
 
         if (isPaymentOnly)
         {
-            // Le montant peut dépasser la dette : le solde du client devient négatif (avoir en sa faveur).
-            if (input.AmountPaid <= 0)
-                throw new BusinessException("Un bon sans produit doit avoir un montant encaissé positif.");
+            // Positif = encaissé du client (réduit sa dette, peut la rendre négative). Négatif = argent donné au
+            // client (augmente sa dette).
+            if (input.AmountPaid == 0)
+                throw new BusinessException("Un bon sans produit doit avoir un montant non nul.");
             note.Total = 0;
             note.AmountPaid = input.AmountPaid;
         }
@@ -140,16 +142,16 @@ public class DeliveryService
             if (input.AmountPaid < 0)
                 throw new BusinessException("Le montant encaissé ne peut pas être négatif.");
             note.AmountPaid = input.AmountPaid;
+        }
 
-            // Le plafond ne bloque que si ce bon augmente la dette (un encaissement supérieur au total la réduit).
-            if (client.CreditLimit > 0 && note.Remaining > 0)
-            {
-                var debtAfter = currentDebt + note.Remaining;
-                if (debtAfter > client.CreditLimit)
-                    throw new BusinessException(
-                        $"Plafond de crédit dépassé pour « {client.Name} » : la dette serait de {debtAfter:N2} DA " +
-                        $"pour un plafond de {client.CreditLimit:N2} DA. Encaissez un paiement ou réduisez le bon.");
-            }
+        // Le plafond ne bloque que si ce bon augmente la dette (encaissement insuffisant, ou négatif sur un bon sans produit).
+        if (client.CreditLimit > 0 && note.Remaining > 0)
+        {
+            var debtAfter = currentDebt + note.Remaining;
+            if (debtAfter > client.CreditLimit)
+                throw new BusinessException(
+                    $"Plafond de crédit dépassé pour « {client.Name} » : la dette serait de {debtAfter:N2} DA " +
+                    $"pour un plafond de {client.CreditLimit:N2} DA. Encaissez un paiement ou réduisez le bon.");
         }
 
         note.Number = $"TMP-{Guid.NewGuid():N}";
@@ -211,8 +213,8 @@ public class DeliveryService
         decimal total;
         if (isPaymentOnly)
         {
-            if (input.AmountPaid <= 0)
-                throw new BusinessException("Un bon sans produit doit avoir un montant encaissé positif.");
+            if (input.AmountPaid == 0)
+                throw new BusinessException("Un bon sans produit doit avoir un montant non nul.");
             total = 0m;
         }
         else
@@ -225,14 +227,14 @@ public class DeliveryService
             total = newLines.Sum(l => l.LineTotal);
             if (input.AmountPaid < 0)
                 throw new BusinessException("Le montant encaissé ne peut pas être négatif.");
-
-            // La dette peut devenir négative (avoir en faveur du client) ; le plafond ne bloque que si la modification l'augmente.
-            var debtAfter = debtWithoutNote + total - input.AmountPaid;
-            if (client.CreditLimit > 0 && debtAfter > client.CreditLimit && debtAfter > debtBefore)
-                throw new BusinessException(
-                    $"Plafond de crédit dépassé pour « {client.Name} » : la dette serait de {debtAfter:N2} DA " +
-                    $"pour un plafond de {client.CreditLimit:N2} DA.");
         }
+
+        // La dette peut devenir négative (avoir en faveur du client) ; le plafond ne bloque que si la modification l'augmente.
+        var debtAfter = debtWithoutNote + total - input.AmountPaid;
+        if (client.CreditLimit > 0 && debtAfter > client.CreditLimit && debtAfter > debtBefore)
+            throw new BusinessException(
+                $"Plafond de crédit dépassé pour « {client.Name} » : la dette serait de {debtAfter:N2} DA " +
+                $"pour un plafond de {client.CreditLimit:N2} DA.");
 
         var now = DateTime.Now;
         foreach (var old in note.Lines)

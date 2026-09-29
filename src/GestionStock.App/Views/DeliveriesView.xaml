@@ -121,7 +121,8 @@
                             <TextBlock Text="{Binding Remaining, StringFormat=N2}" FontSize="20" FontWeight="SemiBold" Margin="0,2,0,0"/>
                         </StackPanel>
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="Montant encaissé maintenant (DA)" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Text="Montant encaissé maintenant (DA)" Style="{StaticResource FieldLabel}"
+                                       ToolTip="Sur un bon sans produit : positif = encaissé du client, négatif = argent donné au client"/>
                             <TextBox Text="{Binding PaidText, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0"/>
                         </StackPanel>
                     </Grid>

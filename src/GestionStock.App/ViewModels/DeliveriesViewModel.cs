@@ -424,7 +424,7 @@ public partial class DeliveriesViewModel : ViewModelBase
             editor.SelectedChip = editor.AvailableChips.FirstOrDefault(ch => ch.PhoneNumber == l.RecipientPhone) ?? editor.SelectedChip;
         }
         if (Lines.Count == 0) AddLine();
-        PaidText = note.AmountPaid > 0 ? note.AmountPaid.ToString("0.##") : "";
+        PaidText = note.AmountPaid != 0 ? note.AmountPaid.ToString("0.##") : "";
         IsFormOpen = true;
     }
 
@@ -508,9 +508,9 @@ public partial class DeliveriesViewModel : ViewModelBase
         var lines = new List<DeliveryLineInput>();
         if (filledLines.Count == 0)
         {
-            if (paid is not > 0)
+            if (paid == 0m)
             {
-                Info("Ajoutez un produit à vendre, ou saisissez un montant pour un simple encaissement.");
+                Info("Ajoutez un produit à vendre, ou saisissez un montant pour un simple encaissement (positif) ou un retrait (négatif).");
                 return;
             }
         }
