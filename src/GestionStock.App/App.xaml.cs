@@ -80,6 +80,8 @@ public partial class App : Application
         services.AddSingleton<ReportService>();
         services.AddSingleton<AccountClosingService>();
         services.AddSingleton<DemoDataService>();
+        services.AddSingleton<IModemPort, SerialModemPort>();
+        services.AddSingleton<CreditTransferService>();
         return services.BuildServiceProvider();
     }
 }

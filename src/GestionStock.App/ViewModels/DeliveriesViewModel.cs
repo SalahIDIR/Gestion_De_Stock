@@ -79,10 +79,17 @@ public record DeliveryRow(DeliveryNote Note)
 
 /// <summary>Ligne du détail d'un bon : un produit livré, ou le montant encaissé (<see cref="IsPayment"/>).</summary>
 public record DeliveryLineRow(string ProductName, decimal? Quantity, decimal? UnitPrice, decimal LineTotal,
-    string? RecipientPhone, bool IsPayment = false)
+    string? RecipientPhone, bool IsPayment = false, UssdSendStatus? UssdStatus = null, string? UssdMessage = null)
 {
+    public string CreditStatusLabel => UssdStatus switch
+    {
+        UssdSendStatus.Sent => "Envoyé",
+        UssdSendStatus.Failed => "Échec",
+        _ => "",
+    };
+
     public static DeliveryLineRow From(DeliveryLine line) => new(line.Product?.Name ?? "", line.Quantity, line.UnitPrice,
-        line.LineTotal, line.RecipientPhone);
+        line.LineTotal, line.RecipientPhone, UssdStatus: line.UssdStatus, UssdMessage: line.UssdMessage);
 
     public static DeliveryLineRow Payment(decimal amount) => new("Encaissement", null, null, amount, null, IsPayment: true);
 }
@@ -95,6 +102,7 @@ public partial class DeliveriesViewModel : ViewModelBase
     private readonly DeliveryService _deliveries;
     private readonly ClientService _clients;
     private readonly ProductService _products;
+    private readonly CreditTransferService _creditTransfer;
     private List<Client> _allClients = new();
     private List<DeliveryNote> _allNotes = new();
     private Dictionary<int, decimal> _lastPrices = new();
@@ -102,11 +110,12 @@ public partial class DeliveriesViewModel : ViewModelBase
     private Dictionary<int, string> _lastRecipients = new();
     private bool _rebuildingChoices;
 
-    public DeliveriesViewModel(DeliveryService deliveries, ClientService clients, ProductService products)
+    public DeliveriesViewModel(DeliveryService deliveries, ClientService clients, ProductService products, CreditTransferService creditTransfer)
     {
         _deliveries = deliveries;
         _clients = clients;
         _products = products;
+        _creditTransfer = creditTransfer;
         Lines.CollectionChanged += (_, e) =>
         {
             if (e.NewItems != null)
@@ -140,7 +149,7 @@ public partial class DeliveriesViewModel : ViewModelBase
     [ObservableProperty] private string _historyAmountMin = "";
     [ObservableProperty] private string _historyAmountMax = "";
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(EditCommand), nameof(DeleteCommand))]
+    [NotifyCanExecuteChangedFor(nameof(EditCommand), nameof(DeleteCommand), nameof(RetryCreditCommand))]
     private DeliveryRow? _selectedDelivery;
 
     /// <summary>Bon en cours de modification dans le formulaire, ou null pour un nouveau bon.</summary>
@@ -199,9 +208,39 @@ public partial class DeliveriesViewModel : ViewModelBase
     partial void OnSelectedDeliveryChanged(DeliveryRow? value)
     {
         SelectedDetails.Clear();
-        if (value == null) return;
-        foreach (var l in value.Note.Lines) SelectedDetails.Add(DeliveryLineRow.From(l));
-        if (value.Note.AmountPaid != 0) SelectedDetails.Add(DeliveryLineRow.Payment(value.Note.AmountPaid));
+        if (value != null)
+        {
+            foreach (var l in value.Note.Lines) SelectedDetails.Add(DeliveryLineRow.From(l));
+            if (value.Note.AmountPaid != 0) SelectedDetails.Add(DeliveryLineRow.Payment(value.Note.AmountPaid));
+        }
+        OnPropertyChanged(nameof(HasFailedCredit));
+    }
+
+    /// <summary>Le bon sélectionné a au moins une ligne de crédit virtuel dont l'envoi USSD a échoué.</summary>
+    public bool HasFailedCredit => SelectedDetails.Any(l => l.UssdStatus == UssdSendStatus.Failed);
+
+    private bool CanRetryCredit() => SelectedDelivery != null && HasFailedCredit;
+
+    /// <summary>Retente l'envoi USSD des lignes en échec du bon sélectionné (celles déjà envoyées ne sont pas renvoyées).</summary>
+    [RelayCommand(CanExecute = nameof(CanRetryCredit))]
+    private async Task RetryCreditAsync()
+    {
+        if (SelectedDelivery == null) return;
+        var noteId = SelectedDelivery.Note.Id;
+        List<CreditTransferService.LineResult>? results = null;
+        if (!await TryAsync(async () => results = await _creditTransfer.SendPendingAsync(noteId))) return;
+
+        await TryAsync(ReloadProductsAndHistoryAsync);
+        SelectedDelivery = History.FirstOrDefault(r => r.Note.Id == noteId);
+        Info(CreditSummary(results!));
+    }
+
+    /// <summary>Message récapitulatif d'une tentative d'envoi de crédit, pour informer l'utilisateur du résultat de chaque ligne.</summary>
+    private static string CreditSummary(List<CreditTransferService.LineResult> results)
+    {
+        if (results.Count == 0) return "Aucun crédit à envoyer sur ce bon.";
+        var lines = results.Select(r => $"{(r.Success ? "✓" : "✗")} {r.ProductName} → {r.RecipientPhone} : {r.Message}");
+        return "Envoi du crédit :\n" + string.Join("\n", lines);
     }
 
     private void RefreshTotals()
@@ -532,17 +571,28 @@ public partial class DeliveriesViewModel : ViewModelBase
             : await _deliveries.UpdateAsync(editing.Id, new DeliveryInput(Client.Id, editing.Date, lines, paid.Value)));
         if (!ok || saved == null) return;
 
+        // Le crédit n'est envoyé qu'à la création (pas à la modification), pour ne jamais le transférer deux fois.
+        List<CreditTransferService.LineResult>? creditResults = null;
+        if (editing == null)
+            await TryAsync(async () => creditResults = await _creditTransfer.SendPendingAsync(saved.Id));
+
         var clientName = Client.Name;
         ResetForm();
         IsFormOpen = false;
         await TryAsync(ReloadProductsAndHistoryAsync);
+        SelectedDelivery = History.FirstOrDefault(r => r.Note.Id == saved.Id);
+
         if (editing != null)
             Info($"Bon {saved.Number} modifié pour « {clientName} » ({saved.Total:N2} DA, encaissé {saved.AmountPaid:N2} DA).\n" +
                  "Le stock, la dette du client et le rapport ont été mis à jour.");
         else
-            Info(lines.Count == 0
+        {
+            var message = lines.Count == 0
                 ? $"Bon d'encaissement {saved.Number} enregistré pour « {clientName} » ({saved.AmountPaid:N2} DA)."
-                : $"Bon de livraison {saved.Number} enregistré pour « {clientName} » ({saved.Total:N2} DA, reste à payer {saved.Remaining:N2} DA).\nLe stock a été mis à jour.");
+                : $"Bon de livraison {saved.Number} enregistré pour « {clientName} » ({saved.Total:N2} DA, reste à payer {saved.Remaining:N2} DA).\nLe stock a été mis à jour.";
+            if (creditResults is { Count: > 0 }) message += "\n\n" + CreditSummary(creditResults);
+            Info(message);
+        }
         if (print) await PrintNoteAsync(saved.Id);
     }
 

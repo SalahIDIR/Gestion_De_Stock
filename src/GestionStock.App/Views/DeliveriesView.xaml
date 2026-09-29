@@ -63,6 +63,8 @@
                     <Button Content="+ Nouveau bon" Command="{Binding OpenFormCommand}" Style="{StaticResource PrimaryButton}"/>
                     <Button Content="Modifier le bon" Command="{Binding EditCommand}"/>
                     <Button Content="Supprimer le bon" Command="{Binding DeleteCommand}" Style="{StaticResource DangerButton}"/>
+                    <Button Content="Renvoyer le crédit" Command="{Binding RetryCreditCommand}"
+                            ToolTip="Retente l'envoi USSD des lignes en échec du bon sélectionné"/>
                 </StackPanel>
                 <TextBlock Text="Détail du bon sélectionné" Style="{StaticResource Section}" Margin="0,12,0,6"/>
             </StackPanel>
@@ -73,6 +75,13 @@
                     <DataGridTextColumn Header="Coef. / prix" Binding="{Binding UnitPrice, StringFormat=0.####}" Width="80"/>
                     <DataGridTextColumn Header="Facturé (DA)" Binding="{Binding LineTotal, StringFormat=N2}" Width="105"/>
                     <DataGridTextColumn Header="Puce" Binding="{Binding RecipientPhone}" Width="110"/>
+                    <DataGridTextColumn Header="Crédit" Binding="{Binding CreditStatusLabel}" Width="90">
+                        <DataGridTextColumn.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="ToolTip" Value="{Binding UssdMessage}"/>
+                            </Style>
+                        </DataGridTextColumn.CellStyle>
+                    </DataGridTextColumn>
                 </DataGrid.Columns>
                 <DataGrid.RowStyle>
                     <Style TargetType="DataGridRow">
@@ -80,6 +89,9 @@
                             <DataTrigger Binding="{Binding IsPayment}" Value="True">
                                 <Setter Property="Background" Value="#1A16A34A"/>
                                 <Setter Property="FontWeight" Value="SemiBold"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding UssdStatus}" Value="Failed">
+                                <Setter Property="Background" Value="#1ADC2626"/>
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>

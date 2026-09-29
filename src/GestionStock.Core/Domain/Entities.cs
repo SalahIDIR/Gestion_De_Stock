@@ -221,7 +221,16 @@ public class DeliveryLine
     public decimal LineTotal { get; set; }
     /// <summary>Numéro de puce ayant reçu le crédit, tel que choisi au moment de la vente (peut différer du numéro actuel du client).</summary>
     public string? RecipientPhone { get; set; }
+    /// <summary>
+    /// Statut de l'envoi USSD du crédit à <see cref="RecipientPhone"/> (uniquement pour un crédit virtuel) : null tant
+    /// qu'aucun envoi n'a été tenté, ou pour un produit physique qui n'a rien à transférer.
+    /// </summary>
+    public UssdSendStatus? UssdStatus { get; set; }
+    /// <summary>Réponse du modem ou message d'erreur de la dernière tentative d'envoi, pour diagnostiquer un échec.</summary>
+    public string? UssdMessage { get; set; }
 }
+
+public enum UssdSendStatus { Sent, Failed }
 
 /// <summary>
 /// Une clôture de caisse (« Solde des comptes ») : photographie figée de la situation financière à un instant donné,
