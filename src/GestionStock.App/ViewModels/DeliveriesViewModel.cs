@@ -201,7 +201,7 @@ public partial class DeliveriesViewModel : ViewModelBase
         SelectedDetails.Clear();
         if (value == null) return;
         foreach (var l in value.Note.Lines) SelectedDetails.Add(DeliveryLineRow.From(l));
-        if (value.Note.AmountPaid > 0) SelectedDetails.Add(DeliveryLineRow.Payment(value.Note.AmountPaid));
+        if (value.Note.AmountPaid != 0) SelectedDetails.Add(DeliveryLineRow.Payment(value.Note.AmountPaid));
     }
 
     private void RefreshTotals()
