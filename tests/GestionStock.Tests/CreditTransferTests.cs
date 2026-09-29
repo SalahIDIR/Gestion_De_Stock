@@ -44,7 +44,7 @@ public class CreditTransferTests
 
         var settings = new SettingsService(db);
         var djezzy = (await settings.GetOperatorsAsync()).Single(o => o.Name == "Djezzy");
-        await settings.SaveOperatorRoutingAsync(djezzy.Id, "COM5", "*760*{numero}*{montant}*2008#", "1", "TRANSFERE", viaSms);
+        await settings.SaveOperatorRoutingAsync(djezzy.Id, "COM5", "*760*{numero}*{montant}*2008#", "1", "TRANSFERE", viaSms, "*766#");
 
         var client = await new ClientService(db).SaveAsync(new Client { Name = "Boutique" });
         var modem = new FakeModemPort();
@@ -200,6 +200,48 @@ public class CreditTransferTests
         Assert.Empty(results);
         Assert.Empty(c.Modem.UssdCalls);
         Assert.Null((await LineOf(c, note.Id)).UssdStatus);
+    }
+
+    [Fact]
+    public async Task CheckBalancesAsync_sends_the_balance_code_and_returns_the_modem_reply()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        c.Modem.UssdResponses.Enqueue("Solde disponible : 5000 DA");
+
+        var results = await c.Transfers.CheckBalancesAsync();
+
+        var djezzy = results.Single(r => r.OperatorName == "Djezzy");
+        Assert.True(djezzy.Success);
+        Assert.Equal("Solde disponible : 5000 DA", djezzy.Message);
+        Assert.Contains(("COM5", "*766#"), c.Modem.UssdCalls); // le gabarit par défaut de Djezzy, sans confirmation
+    }
+
+    [Fact]
+    public async Task CheckBalancesAsync_reports_missing_configuration_without_touching_the_modem()
+    {
+        var c = await SetupAsync(); // seul Djezzy a un port COM configuré dans SetupAsync
+        using var _ = c.Db;
+
+        var results = await c.Transfers.CheckBalancesAsync();
+
+        var ooredoo = results.Single(r => r.OperatorName == "Ooredoo");
+        Assert.False(ooredoo.Success);
+        Assert.DoesNotContain(c.Modem.UssdCalls, call => call.ComPort != "COM5"); // jamais appelé pour un opérateur non configuré
+    }
+
+    [Fact]
+    public async Task CheckBalancesAsync_reports_failure_when_the_modem_does_not_respond()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        // La file est vide : SendUssd renvoie null (pas de réponse).
+
+        var results = await c.Transfers.CheckBalancesAsync();
+
+        var djezzy = results.Single(r => r.OperatorName == "Djezzy");
+        Assert.False(djezzy.Success);
+        Assert.Equal("Aucune réponse du modem.", djezzy.Message);
     }
 
     [Fact]

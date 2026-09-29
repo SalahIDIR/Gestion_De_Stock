@@ -51,7 +51,7 @@ public class SettingsService
     /// changer ; ils sont donc modifiables ici plutôt que codés en dur.
     /// </summary>
     public async Task SaveOperatorRoutingAsync(int operatorId, string? comPort, string? ussdTemplate,
-        string? confirmKeystroke = null, string? successKeyword = null, bool confirmationViaSms = false)
+        string? confirmKeystroke = null, string? successKeyword = null, bool confirmationViaSms = false, string? balanceUssdCode = null)
     {
         comPort = string.IsNullOrWhiteSpace(comPort) ? null : comPort.Trim().ToUpperInvariant();
         if (comPort != null && !System.Text.RegularExpressions.Regex.IsMatch(comPort, @"^COM\d{1,3}$"))
@@ -72,6 +72,7 @@ public class SettingsService
         op.ConfirmKeystroke = string.IsNullOrWhiteSpace(confirmKeystroke) ? null : confirmKeystroke.Trim();
         op.SuccessKeyword = string.IsNullOrWhiteSpace(successKeyword) ? null : successKeyword.Trim();
         op.ConfirmationViaSms = confirmationViaSms;
+        op.BalanceUssdCode = string.IsNullOrWhiteSpace(balanceUssdCode) ? null : balanceUssdCode.Trim();
         await db.SaveChangesAsync();
     }
 }

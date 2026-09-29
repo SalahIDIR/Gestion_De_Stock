@@ -53,47 +53,85 @@
             </WrapPanel>
         </Border>
 
-        <DataGrid ItemsSource="{Binding Items}">
-            <DataGrid.Columns>
-                <DataGridTemplateColumn Header="" Width="22">
-                    <DataGridTemplateColumn.CellTemplate>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="200"/>
+            </Grid.ColumnDefinitions>
+
+            <DataGrid Grid.Column="0" ItemsSource="{Binding Items}">
+                <DataGrid.Columns>
+                    <DataGridTemplateColumn Header="" Width="22">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Rectangle Width="10" Height="10" RadiusX="2" RadiusY="2"
+                                           Fill="{Binding ProductColorHex, Converter={StaticResource HexToBrush}}"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="Date" Binding="{Binding Date, StringFormat=dd/MM/yyyy HH:mm}" Width="115"/>
+                    <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="70"/>
+                    <DataGridTextColumn Header="N°" Binding="{Binding Number}" Width="95"/>
+                    <DataGridTextColumn Header="Tiers" Binding="{Binding Tiers}" Width="*"/>
+                    <DataGridTextColumn Header="Produit" Binding="{Binding ProductName}" Width="90"/>
+                    <DataGridTextColumn Header="Puce destinataire" Binding="{Binding RecipientPhoneText}" Width="130"
+                                        ToolTipService.ToolTip="Numéro de la puce à laquelle le crédit a été envoyé"/>
+                    <DataGridTextColumn Header="Montant crédit (DA)" Binding="{Binding QuantityText}" Width="130">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Right"/>
+                                <Setter Property="Padding" Value="0,0,8,0"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <DataGridTextColumn Header="Crédit restant (DA)" Binding="{Binding StockAfterText}" Width="140">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Right"/>
+                                <Setter Property="Padding" Value="0,0,8,0"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                <Setter Property="ToolTip" Value="Stock du produit juste après cette transaction"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                </DataGrid.Columns>
+                <DataGrid.RowStyle>
+                    <Style TargetType="DataGridRow">
+                        <Setter Property="Background" Value="{Binding RowColorHex, Converter={StaticResource HexToRowBackground}}"/>
+                    </Style>
+                </DataGrid.RowStyle>
+            </DataGrid>
+
+            <!-- Solde des puces : récupéré uniquement sur clic (interroge le modem, ne se fait jamais automatiquement) -->
+            <StackPanel Grid.Column="2">
+                <TextBlock Text="Solde des puces" Style="{StaticResource Section}" Margin="0,0,0,8"/>
+                <Button Content="Récupérer les soldes" Command="{Binding CheckBalancesCommand}" Margin="0,0,0,4" HorizontalAlignment="Stretch"/>
+                <TextBlock Text="Récupération en cours…" Style="{StaticResource FieldLabel}" Margin="0,0,0,8"
+                           Visibility="{Binding IsCheckingBalances, Converter={StaticResource BoolToVis}}"/>
+                <ItemsControl ItemsSource="{Binding Balances}">
+                    <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Rectangle Width="10" Height="10" RadiusX="2" RadiusY="2"
-                                       Fill="{Binding ProductColorHex, Converter={StaticResource HexToBrush}}"/>
+                            <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="10" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Label}" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding BalanceText}" TextWrapping="Wrap" Margin="0,4,0,0">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Success}" Value="False">
+                                                        <Setter Property="Foreground" Value="#DC2626"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
                         </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Date" Binding="{Binding Date, StringFormat=dd/MM/yyyy HH:mm}" Width="115"/>
-                <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="70"/>
-                <DataGridTextColumn Header="N°" Binding="{Binding Number}" Width="95"/>
-                <DataGridTextColumn Header="Tiers" Binding="{Binding Tiers}" Width="*"/>                
-                <DataGridTextColumn Header="Produit" Binding="{Binding ProductName}" Width="90"/>
-                <DataGridTextColumn Header="Puce destinataire" Binding="{Binding RecipientPhoneText}" Width="130"
-                                    ToolTipService.ToolTip="Numéro de la puce à laquelle le crédit a été envoyé"/>
-                <DataGridTextColumn Header="Montant crédit (DA)" Binding="{Binding QuantityText}" Width="130">
-                    <DataGridTextColumn.ElementStyle>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="HorizontalAlignment" Value="Right"/>
-                            <Setter Property="Padding" Value="0,0,8,0"/>
-                        </Style>
-                    </DataGridTextColumn.ElementStyle>
-                </DataGridTextColumn>
-                <DataGridTextColumn Header="Crédit restant (DA)" Binding="{Binding StockAfterText}" Width="140">
-                    <DataGridTextColumn.ElementStyle>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="HorizontalAlignment" Value="Right"/>
-                            <Setter Property="Padding" Value="0,0,8,0"/>
-                            <Setter Property="FontWeight" Value="SemiBold"/>
-                            <Setter Property="ToolTip" Value="Stock du produit juste après cette transaction"/>
-                        </Style>
-                    </DataGridTextColumn.ElementStyle>
-                </DataGridTextColumn>
-            </DataGrid.Columns>
-            <DataGrid.RowStyle>
-                <Style TargetType="DataGridRow">
-                    <Setter Property="Background" Value="{Binding RowColorHex, Converter={StaticResource HexToRowBackground}}"/>
-                </Style>
-            </DataGrid.RowStyle>
-        </DataGrid>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Grid>
     </DockPanel>
 </UserControl>

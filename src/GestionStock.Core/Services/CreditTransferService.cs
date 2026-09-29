@@ -185,6 +185,33 @@ public class CreditTransferService
     /// <summary>Une tentative d'envoi pour une ligne du bon (pour le récapitulatif affiché à l'utilisateur).</summary>
     public record LineResult(string ProductName, string? RecipientPhone, bool Success, string Message);
 
+    /// <summary>Résultat d'une consultation de solde pour un opérateur (« Tester connexion » et Rapport transactions).</summary>
+    public record BalanceResult(string OperatorName, bool Success, string Message);
+
+    /// <summary>
+    /// Interroge le solde de crédit disponible sur la puce de chaque opérateur configuré, en envoyant son code USSD
+    /// de consultation (une seule requête, sans confirmation). Sert à la fois à tester la connexion au modem et à
+    /// afficher le solde des puces.
+    /// </summary>
+    public async Task<List<BalanceResult>> CheckBalancesAsync()
+    {
+        await using var db = await _factory.CreateDbContextAsync();
+        var operators = await db.Operators.ToListAsync();
+
+        var results = new List<BalanceResult>();
+        foreach (var op in operators)
+        {
+            if (string.IsNullOrWhiteSpace(op.ComPort) || string.IsNullOrWhiteSpace(op.BalanceUssdCode))
+            {
+                results.Add(new BalanceResult(op.Name, false, "Port COM ou code de solde non configuré (page Paramètres)."));
+                continue;
+            }
+            var reply = _modem.SendUssd(op.ComPort, op.BalanceUssdCode, UssdTimeout);
+            results.Add(new BalanceResult(op.Name, reply != null, reply ?? "Aucune réponse du modem."));
+        }
+        return results;
+    }
+
     /// <summary>
     /// Envoie le crédit de chaque ligne de crédit virtuel du bon qui n'est pas encore marquée comme envoyée
     /// (première tentative, ou nouvel essai après un échec).

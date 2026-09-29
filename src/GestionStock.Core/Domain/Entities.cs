@@ -51,6 +51,8 @@ public class Operator
     /// (ex. Mobilis) : le mot-clé de succès est alors recherché dans le SMS reçu, pas dans la réponse USSD.
     /// </summary>
     public bool ConfirmationViaSms { get; set; }
+    /// <summary>Code USSD sans confirmation qui renvoie le solde de crédit disponible sur la puce (ex. *766# pour Djezzy).</summary>
+    public string? BalanceUssdCode { get; set; }
 
     public override string ToString() => Name;
 }

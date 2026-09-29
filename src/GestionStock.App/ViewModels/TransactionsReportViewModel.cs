@@ -7,23 +7,54 @@ using GestionStock.Core.Services;
 
 namespace GestionStock.App.ViewModels;
 
+/// <summary>Solde de la puce d'un opérateur, affiché à droite du rapport après un clic sur « Récupérer les soldes ».</summary>
+public record BalanceRow(string Label, string BalanceText, bool Success);
+
 /// <summary>
 /// Rapport des transactions de crédit virtuel (Flexy, Storm, Erselli…) : achats et ventes seulement,
 /// sans encaissements ni produits physiques.
 /// </summary>
 public partial class TransactionsReportViewModel : ViewModelBase
 {
+    /// <summary>Nom du produit correspondant à chaque opérateur, pour afficher le solde sous le nom déjà familier sur cette page.</summary>
+    private static readonly Dictionary<string, string> ProductLabelForOperator = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Djezzy"] = "Flexy", ["Ooredoo"] = "Storm", ["Mobilis"] = "Erselli",
+    };
+
     private readonly ReportService _reports;
+    private readonly CreditTransferService _creditTransfer;
     private List<OperationRow> _all = new();
 
-    public TransactionsReportViewModel(ReportService reports, ProductService products)
+    public TransactionsReportViewModel(ReportService reports, ProductService products, CreditTransferService creditTransfer)
     {
         _reports = reports;
+        _creditTransfer = creditTransfer;
         _ = InitializeAsync(products);
     }
 
     public ObservableCollection<OperationRowView> Items { get; } = new();
     public ObservableCollection<ProductFilterOption> ProductFilters { get; } = new();
+    public ObservableCollection<BalanceRow> Balances { get; } = new();
+
+    [ObservableProperty] private bool _isCheckingBalances;
+
+    private bool CanCheckBalances() => !IsCheckingBalances;
+
+    /// <summary>Interroge le solde de crédit disponible sur chaque puce et l'affiche ; ne se déclenche que sur demande.</summary>
+    [RelayCommand(CanExecute = nameof(CanCheckBalances))]
+    private async Task CheckBalancesAsync()
+    {
+        IsCheckingBalances = true;
+        List<CreditTransferService.BalanceResult>? results = null;
+        try { await TryAsync(async () => results = await _creditTransfer.CheckBalancesAsync()); }
+        finally { IsCheckingBalances = false; }
+        if (results == null) return;
+
+        Balances.Clear();
+        foreach (var r in results)
+            Balances.Add(new BalanceRow(ProductLabelForOperator.GetValueOrDefault(r.OperatorName, r.OperatorName), r.Message, r.Success));
+    }
 
     [ObservableProperty] private bool _showAchats = true;
     [ObservableProperty] private bool _showVentes = true;

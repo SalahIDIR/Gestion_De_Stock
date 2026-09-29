@@ -18,6 +18,7 @@ public partial class OperatorRouting : ObservableObject
         _confirmKeystroke = op.ConfirmKeystroke ?? "";
         _successKeyword = op.SuccessKeyword ?? "";
         _confirmationViaSms = op.ConfirmationViaSms;
+        _balanceUssdCode = op.BalanceUssdCode ?? "";
     }
 
     public Operator Operator { get; }
@@ -31,6 +32,8 @@ public partial class OperatorRouting : ObservableObject
     [ObservableProperty] private string _successKeyword;
     /// <summary>La confirmation réelle arrive par SMS séparé (ex. Mobilis) plutôt que dans la session USSD elle-même.</summary>
     [ObservableProperty] private bool _confirmationViaSms;
+    /// <summary>Code USSD sans confirmation qui renvoie le solde de crédit disponible sur la puce (ex. *766#).</summary>
+    [ObservableProperty] private string _balanceUssdCode;
 }
 
 public partial class SettingsViewModel : ViewModelBase
@@ -38,13 +41,15 @@ public partial class SettingsViewModel : ViewModelBase
     private readonly SettingsService _settings;
     private readonly AuthService _auth;
     private readonly DemoDataService _demo;
+    private readonly CreditTransferService _creditTransfer;
     private readonly User _user;
 
-    public SettingsViewModel(SettingsService settings, AuthService auth, DemoDataService demo, User user)
+    public SettingsViewModel(SettingsService settings, AuthService auth, DemoDataService demo, CreditTransferService creditTransfer, User user)
     {
         _settings = settings;
         _auth = auth;
         _demo = demo;
+        _creditTransfer = creditTransfer;
         _user = user;
 
         try { foreach (var port in SerialPort.GetPortNames().Order()) AvailablePorts.Add(port); }
@@ -97,8 +102,28 @@ public partial class SettingsViewModel : ViewModelBase
     {
         if (row == null) return;
         var ok = await TryAsync(() => _settings.SaveOperatorRoutingAsync(row.Operator.Id, row.ComPort, row.UssdTemplate,
-            row.ConfirmKeystroke, row.SuccessKeyword, row.ConfirmationViaSms));
+            row.ConfirmKeystroke, row.SuccessKeyword, row.ConfirmationViaSms, row.BalanceUssdCode));
         if (ok) Info($"Routage de {row.Name} enregistré.");
+    }
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(TestConnectionCommand))]
+    private bool _isTestingConnection;
+
+    private bool CanTestConnection() => !IsTestingConnection;
+
+    /// <summary>Interroge le solde de chaque puce configurée pour vérifier que le modem et le routage répondent.</summary>
+    [RelayCommand(CanExecute = nameof(CanTestConnection))]
+    private async Task TestConnectionAsync()
+    {
+        IsTestingConnection = true;
+        List<CreditTransferService.BalanceResult>? results = null;
+        try { await TryAsync(async () => results = await _creditTransfer.CheckBalancesAsync()); }
+        finally { IsTestingConnection = false; }
+
+        if (results != null)
+            Info("Test de connexion :\n\n" + string.Join("\n\n",
+                results.Select(r => $"{(r.Success ? "✓" : "✗")} {r.OperatorName} : {r.Message}")));
     }
 
     [RelayCommand]

@@ -25,20 +25,24 @@ public static class DatabaseInitializer
 
         // Gabarits USSD connus par défaut : ne complète que ce qui n'a jamais été configuré, sans écraser une
         // personnalisation déjà saisie dans Paramètres. Ces « codes » peuvent changer et restent modifiables là-bas.
-        var defaultRouting = new Dictionary<string, (string Ussd, string Confirm, string Keyword, bool ViaSms)>
+        var defaultRouting = new Dictionary<string, (string Ussd, string Confirm, string Keyword, bool ViaSms, string Balance)>
         {
-            ["Djezzy"] = ("*760*{numero}*{montant}*2008#", "1", "TRANSFERE", false),
-            ["Ooredoo"] = ("*599*{numero}*{montant}*2008#", "1", "STORMCREDIT", false),
-            ["Mobilis"] = ("*631*{numero}*04*{montant}*00000#", "1", "transaction", true),
+            ["Djezzy"] = ("*760*{numero}*{montant}*2008#", "1", "TRANSFERE", false, "*766#"),
+            ["Ooredoo"] = ("*599*{numero}*{montant}*2008#", "1", "STORMCREDIT", false, "*200*2008#"),
+            ["Mobilis"] = ("*631*{numero}*04*{montant}*00000#", "1", "transaction", true, "*632*01*00000#"),
         };
-        foreach (var op in await db.Operators.Where(o => o.UssdTemplate == null).ToListAsync())
-            if (defaultRouting.TryGetValue(op.Name, out var d))
+        foreach (var op in await db.Operators.ToListAsync())
+        {
+            if (!defaultRouting.TryGetValue(op.Name, out var d)) continue;
+            if (op.UssdTemplate == null)
             {
                 op.UssdTemplate = d.Ussd;
                 op.ConfirmKeystroke = d.Confirm;
                 op.SuccessKeyword = d.Keyword;
                 op.ConfirmationViaSms = d.ViaSms;
             }
+            if (op.BalanceUssdCode == null) op.BalanceUssdCode = d.Balance;
+        }
 
         if (!await db.Products.AnyAsync())
         {

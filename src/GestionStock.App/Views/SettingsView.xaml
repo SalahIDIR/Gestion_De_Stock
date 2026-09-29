@@ -80,11 +80,27 @@
                                                       IsChecked="{Binding ConfirmationViaSms}"
                                                       ToolTip="Cochez si le message final de confirmation arrive par SMS séparé plutôt que dans la session USSD (cas de Mobilis)"/>
                                         </Grid>
+                                        <Grid Margin="90,6,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="230"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="Code de consultation du solde" Style="{StaticResource FieldLabel}" Margin="0,0,8,0"/>
+                                                <TextBox Text="{Binding BalanceUssdCode, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"
+                                                         ToolTip="Code USSD sans confirmation qui renvoie le solde disponible sur la puce, ex. *766#"/>
+                                            </StackPanel>
+                                        </Grid>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <Button Content="Tester connexion" Command="{Binding TestConnectionCommand}"
+                                ToolTip="Envoie le code de consultation du solde aux 3 puces pour vérifier la connexion"/>
+                        <TextBlock Text="Test en cours…" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="10,0,0,0"
+                                   Visibility="{Binding IsTestingConnection, Converter={StaticResource BoolToVis}}"/>
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
