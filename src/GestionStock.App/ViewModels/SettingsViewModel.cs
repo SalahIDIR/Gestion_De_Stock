@@ -15,6 +15,9 @@ public partial class OperatorRouting : ObservableObject
         Operator = op;
         _comPort = op.ComPort ?? "";
         _ussdTemplate = op.UssdTemplate ?? "";
+        _confirmKeystroke = op.ConfirmKeystroke ?? "";
+        _successKeyword = op.SuccessKeyword ?? "";
+        _confirmationViaSms = op.ConfirmationViaSms;
     }
 
     public Operator Operator { get; }
@@ -22,6 +25,12 @@ public partial class OperatorRouting : ObservableObject
 
     [ObservableProperty] private string _comPort;
     [ObservableProperty] private string _ussdTemplate;
+    /// <summary>Chiffre renvoyé pour confirmer le transfert quand le réseau demande confirmation (ex. « 1 »).</summary>
+    [ObservableProperty] private string _confirmKeystroke;
+    /// <summary>Mot trouvé dans le message final qui indique que le transfert a réussi.</summary>
+    [ObservableProperty] private string _successKeyword;
+    /// <summary>La confirmation réelle arrive par SMS séparé (ex. Mobilis) plutôt que dans la session USSD elle-même.</summary>
+    [ObservableProperty] private bool _confirmationViaSms;
 }
 
 public partial class SettingsViewModel : ViewModelBase
@@ -87,7 +96,8 @@ public partial class SettingsViewModel : ViewModelBase
     private async Task SaveRoutingAsync(OperatorRouting? row)
     {
         if (row == null) return;
-        var ok = await TryAsync(() => _settings.SaveOperatorRoutingAsync(row.Operator.Id, row.ComPort, row.UssdTemplate));
+        var ok = await TryAsync(() => _settings.SaveOperatorRoutingAsync(row.Operator.Id, row.ComPort, row.UssdTemplate,
+            row.ConfirmKeystroke, row.SuccessKeyword, row.ConfirmationViaSms));
         if (ok) Info($"Routage de {row.Name} enregistré.");
     }
 

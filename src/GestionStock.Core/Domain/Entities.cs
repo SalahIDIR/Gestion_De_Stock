@@ -42,6 +42,15 @@ public class Operator
     public string? ComPort { get; set; }
     /// <summary>Modèle de requête USSD, ex. *760*{numero}*{montant}#.</summary>
     public string? UssdTemplate { get; set; }
+    /// <summary>Chiffre renvoyé pour confirmer le transfert quand le réseau demande confirmation (ex. « 1 »).</summary>
+    public string? ConfirmKeystroke { get; set; }
+    /// <summary>Mot-clé recherché (sans respect de la casse) dans le message final pour détecter un transfert réussi.</summary>
+    public string? SuccessKeyword { get; set; }
+    /// <summary>
+    /// Vrai si la confirmation réelle du transfert arrive par SMS séparé plutôt que dans la session USSD elle-même
+    /// (ex. Mobilis) : le mot-clé de succès est alors recherché dans le SMS reçu, pas dans la réponse USSD.
+    /// </summary>
+    public bool ConfirmationViaSms { get; set; }
 
     public override string ToString() => Name;
 }

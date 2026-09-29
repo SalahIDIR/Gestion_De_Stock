@@ -45,8 +45,13 @@ public class SettingsService
         return await db.Operators.AsNoTracking().OrderBy(o => o.Id).ToListAsync();
     }
 
-    /// <summary>Met à jour le routage matériel d'un opérateur (port COM et requête USSD).</summary>
-    public async Task SaveOperatorRoutingAsync(int operatorId, string? comPort, string? ussdTemplate)
+    /// <summary>
+    /// Met à jour le routage matériel d'un opérateur : port COM, requête USSD, chiffre de confirmation, mot-clé de
+    /// succès et si la confirmation réelle arrive par SMS. Ces « codes » sont fournis par l'opérateur et peuvent
+    /// changer ; ils sont donc modifiables ici plutôt que codés en dur.
+    /// </summary>
+    public async Task SaveOperatorRoutingAsync(int operatorId, string? comPort, string? ussdTemplate,
+        string? confirmKeystroke = null, string? successKeyword = null, bool confirmationViaSms = false)
     {
         comPort = string.IsNullOrWhiteSpace(comPort) ? null : comPort.Trim().ToUpperInvariant();
         if (comPort != null && !System.Text.RegularExpressions.Regex.IsMatch(comPort, @"^COM\d{1,3}$"))
@@ -64,6 +69,9 @@ public class SettingsService
 
         op.ComPort = comPort;
         op.UssdTemplate = string.IsNullOrWhiteSpace(ussdTemplate) ? null : ussdTemplate.Trim();
+        op.ConfirmKeystroke = string.IsNullOrWhiteSpace(confirmKeystroke) ? null : confirmKeystroke.Trim();
+        op.SuccessKeyword = string.IsNullOrWhiteSpace(successKeyword) ? null : successKeyword.Trim();
+        op.ConfirmationViaSms = confirmationViaSms;
         await db.SaveChangesAsync();
     }
 }

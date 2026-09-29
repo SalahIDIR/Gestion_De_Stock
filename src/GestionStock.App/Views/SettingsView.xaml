@@ -37,26 +37,51 @@
                     <TextBlock Text="Routage matériel (ports COM) et requêtes USSD" Style="{StaticResource Section}" Margin="0,0,0,4"/>
                     <TextBlock Text="{Binding PortsHint}" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
                     <TextBlock Style="{StaticResource FieldLabel}" TextWrapping="Wrap" Margin="0,0,0,10"
-                               Text="Assignez un port COM à chaque opérateur. La requête USSD est un modèle avec les variables {numero} et {montant}. Ces réglages seront utilisés lors des transferts de crédit."/>
+                               Text="Assignez un port COM à chaque opérateur. La requête USSD est un modèle avec les variables {numero} et {montant}. Le transfert se fait en deux échanges : le code envoyé déclenche une invite de confirmation, puis le chiffre de confirmation déclenche le message final ; le succès est détecté par le mot-clé, dans ce message ou dans un SMS séparé si l'opérateur confirme par SMS. Ces codes viennent de l'opérateur et peuvent changer : corrigez-les ici si besoin."/>
                     <ItemsControl ItemsSource="{Binding Routing}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Grid Margin="0,0,0,6">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="90"/>
-                                        <ColumnDefinition Width="130"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                    <ComboBox Grid.Column="1" IsEditable="True" Margin="0,0,8,0"
-                                              ItemsSource="{Binding DataContext.AvailablePorts, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                              Text="{Binding ComPort, UpdateSourceTrigger=PropertyChanged}"/>
-                                    <TextBox Grid.Column="2" Margin="0,0,8,0" Text="{Binding UssdTemplate, UpdateSourceTrigger=PropertyChanged}"/>
-                                    <Button Grid.Column="3" Content="Enregistrer" Margin="0"
-                                            Command="{Binding DataContext.SaveRoutingCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="{Binding}"/>
-                                </Grid>
+                                <Border BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="0,0,0,10" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="90"/>
+                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                            <ComboBox Grid.Column="1" IsEditable="True" Margin="0,0,8,0"
+                                                      ItemsSource="{Binding DataContext.AvailablePorts, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                      Text="{Binding ComPort, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <TextBox Grid.Column="2" Margin="0,0,8,0" Text="{Binding UssdTemplate, UpdateSourceTrigger=PropertyChanged}"
+                                                     ToolTip="Requête USSD, ex. *760*{numero}*{montant}*2008#"/>
+                                            <Button Grid.Column="3" Content="Enregistrer" Margin="0"
+                                                    Command="{Binding DataContext.SaveRoutingCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"/>
+                                        </Grid>
+                                        <Grid Margin="90,0,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="180"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="Confirmation" Style="{StaticResource FieldLabel}" Margin="0,0,8,0"/>
+                                                <TextBox Text="{Binding ConfirmKeystroke, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"
+                                                         ToolTip="Chiffre renvoyé quand le réseau demande confirmation, ex. 1"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="Mot-clé de succès" Style="{StaticResource FieldLabel}" Margin="0,0,8,0"/>
+                                                <TextBox Text="{Binding SuccessKeyword, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"
+                                                         ToolTip="Mot recherché dans le message final (ou le SMS) qui indique un transfert réussi"/>
+                                            </StackPanel>
+                                            <CheckBox Grid.Column="2" Content="Confirmation par SMS" VerticalAlignment="Bottom" Margin="0,0,0,6"
+                                                      IsChecked="{Binding ConfirmationViaSms}"
+                                                      ToolTip="Cochez si le message final de confirmation arrive par SMS séparé plutôt que dans la session USSD (cas de Mobilis)"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
