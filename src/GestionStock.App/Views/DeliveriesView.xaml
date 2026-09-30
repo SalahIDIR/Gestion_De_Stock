@@ -114,6 +114,11 @@
                                 ToolTip="Fermer sans enregistrer (la saisie est conservée)"/>
                         <TextBlock Text="{Binding FormTitle}" Style="{StaticResource Title}" Margin="0"/>
                     </DockPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <Button Content="🎤 Dictée vocale" Command="{Binding VoiceFillCommand}"
+                                ToolTip="Dicte le client, le produit puis le montant (chiffre par chiffre). Relisez avant d'enregistrer."/>
+                        <TextBlock Text="{Binding VoiceStatus}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    </StackPanel>
                     <TextBlock Text="Client * (tapez pour filtrer par nom ou ville)" Style="{StaticResource FieldLabel}"/>
                     <TextBox Text="{Binding ClientSearch, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,4"/>
                     <ComboBox ItemsSource="{Binding ClientChoices}" DisplayMemberPath="Name" SelectedItem="{Binding Client}"/>

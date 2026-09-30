@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Markup;
+using GestionStock.App.Services;
 using GestionStock.App.ViewModels;
 using GestionStock.App.Views;
 using GestionStock.Core.Data;
@@ -82,6 +83,7 @@ public partial class App : Application
         services.AddSingleton<DemoDataService>();
         services.AddSingleton<IModemPort, SerialModemPort>();
         services.AddSingleton<CreditTransferService>();
+        services.AddSingleton<VoiceCommandService>();
         return services.BuildServiceProvider();
     }
 }

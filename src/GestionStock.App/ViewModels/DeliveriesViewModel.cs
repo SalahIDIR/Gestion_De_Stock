@@ -103,6 +103,7 @@ public partial class DeliveriesViewModel : ViewModelBase
     private readonly ClientService _clients;
     private readonly ProductService _products;
     private readonly CreditTransferService _creditTransfer;
+    private readonly VoiceCommandService _voice;
     private List<Client> _allClients = new();
     private List<DeliveryNote> _allNotes = new();
     private Dictionary<int, decimal> _lastPrices = new();
@@ -110,12 +111,14 @@ public partial class DeliveriesViewModel : ViewModelBase
     private Dictionary<int, string> _lastRecipients = new();
     private bool _rebuildingChoices;
 
-    public DeliveriesViewModel(DeliveryService deliveries, ClientService clients, ProductService products, CreditTransferService creditTransfer)
+    public DeliveriesViewModel(DeliveryService deliveries, ClientService clients, ProductService products,
+        CreditTransferService creditTransfer, VoiceCommandService voice)
     {
         _deliveries = deliveries;
         _clients = clients;
         _products = products;
         _creditTransfer = creditTransfer;
+        _voice = voice;
         Lines.CollectionChanged += (_, e) =>
         {
             if (e.NewItems != null)
@@ -393,12 +396,65 @@ public partial class DeliveriesViewModel : ViewModelBase
         if (Lines.Count == 0) AddLine();
     }
 
+    [ObservableProperty] private string _voiceStatus = "";
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(VoiceFillCommand))]
+    private bool _isListening;
+
+    private bool CanUseVoice() => !IsListening;
+
+    /// <summary>
+    /// Remplit le client, le produit et le montant de la première ligne vide par la voix (client puis produit puis
+    /// montant chiffre par chiffre), dans un vocabulaire fermé pour la fiabilité. Ne fait que remplir le formulaire :
+    /// c'est toujours l'utilisateur qui relit et clique sur Enregistrer.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanUseVoice))]
+    private async Task VoiceFillAsync()
+    {
+        if (!VoiceCommandService.IsFrenchAvailable)
+        {
+            Info("Aucune reconnaissance vocale française n'est installée sur cette machine.\n" +
+                 "Paramètres Windows > Heure et langue > Voix > Ajouter une voix > Français.");
+            return;
+        }
+
+        IsListening = true;
+        try
+        {
+            VoiceStatus = "Dites le nom du client…";
+            var clientResult = await _voice.ListenForChoiceAsync(_allClients.Select(c => c.Name).ToList(), TimeSpan.FromSeconds(8));
+            if (!clientResult.Success) { VoiceStatus = $"Client non reconnu : {clientResult.Error}"; return; }
+            var matchedClient = _allClients.First(c => string.Equals(c.Name, clientResult.Value, StringComparison.OrdinalIgnoreCase));
+            ClientSearch = matchedClient.Name;
+            Client = matchedClient;
+
+            VoiceStatus = $"Client : {matchedClient.Name}. Dites le nom du produit…";
+            var productResult = await _voice.ListenForChoiceAsync(Products.Select(p => p.Name).ToList(), TimeSpan.FromSeconds(8));
+            if (!productResult.Success) { VoiceStatus = $"Produit non reconnu : {productResult.Error}"; return; }
+            var matchedProduct = Products.First(p => string.Equals(p.Name, productResult.Value, StringComparison.OrdinalIgnoreCase));
+            var line = Lines.FirstOrDefault(l => l.Product == null) ?? Lines[0];
+            line.Product = matchedProduct;
+
+            VoiceStatus = $"Produit : {matchedProduct.Name}. Dites le montant, chiffre par chiffre…";
+            var amountResult = await _voice.ListenForDigitsAsync(TimeSpan.FromSeconds(15));
+            if (!amountResult.Success) { VoiceStatus = $"Montant non reconnu : {amountResult.Error}"; return; }
+            line.QuantityText = amountResult.Value!;
+
+            VoiceStatus = $"Bon rempli : {matchedClient.Name}, {matchedProduct.Name}, {amountResult.Value} DA. Vérifiez puis cliquez sur Enregistrer.";
+        }
+        finally
+        {
+            IsListening = false;
+        }
+    }
+
     private void ResetForm()
     {
         SetEditingNote(null);
         Client = null;
         ClientSearch = "";
         PaidText = "";
+        VoiceStatus = "";
         Lines.Clear();
         AddLine();
     }
