@@ -63,9 +63,11 @@ public static class PrintHelper
 
     /// <summary>
     /// Imprime un bon (livraison, encaissement ou achat) : titre et numéro, informations du tiers, lignes, puis totaux.
+    /// <paramref name="emphasizedLabel"/> affiche ce total précis dans une police plus grande que les autres.
     /// </summary>
     public static void PrintBon(string title, string number, DateTime date, IReadOnlyList<(string Label, string Value)> info,
-        IReadOnlyList<string> headers, IReadOnlyList<string[]> rows, IReadOnlyList<(string Label, string Value)> totals)
+        IReadOnlyList<string> headers, IReadOnlyList<string[]> rows, IReadOnlyList<(string Label, string Value)> totals,
+        string? emphasizedLabel = null)
     {
         var dialog = new PrintDialog();
         if (dialog.ShowDialog() != true) return;
@@ -112,8 +114,9 @@ public static class PrintHelper
         foreach (var (label, value) in totals)
         {
             if (totalsParagraph.Inlines.Count > 0) totalsParagraph.Inlines.Add(new LineBreak());
-            totalsParagraph.Inlines.Add(new Run($"{label} : "));
-            totalsParagraph.Inlines.Add(new Run(value) { FontWeight = FontWeights.SemiBold });
+            var fontSize = label == emphasizedLabel ? 17d : 12d;
+            totalsParagraph.Inlines.Add(new Run($"{label} : ") { FontSize = fontSize });
+            totalsParagraph.Inlines.Add(new Run(value) { FontWeight = FontWeights.SemiBold, FontSize = fontSize });
         }
         doc.Blocks.Add(totalsParagraph);
 

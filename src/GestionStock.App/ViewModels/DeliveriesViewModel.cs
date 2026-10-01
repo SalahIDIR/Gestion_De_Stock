@@ -562,30 +562,29 @@ public partial class DeliveriesViewModel : ViewModelBase
     private async Task PrintNoteAsync(int noteId)
     {
         DeliveryNote? note = null;
-        decimal debt = 0;
+        decimal debtAfter = 0;
         if (!await TryAsync(async () =>
             {
                 note = await _deliveries.GetAsync(noteId);
-                if (note != null) debt = await _deliveries.GetClientDebtAsync(note.ClientId);
+                if (note != null) debtAfter = await _deliveries.GetClientDebtAsync(note.ClientId);
             }) || note == null) return;
 
         var client = note.Client;
         var isPaymentOnly = note.Lines.Count == 0;
-        var totals = new List<(string, string)>();
-        if (!isPaymentOnly) totals.Add(("Total du bon", $"{note.Total:N2} DA"));
-        totals.Add(("Montant encaissé", $"{note.AmountPaid:N2} DA"));
-        if (!isPaymentOnly) totals.Add(("Reste à payer sur ce bon", $"{note.Remaining:N2} DA"));
-        totals.Add(("Dette totale du client à ce jour", $"{debt:N2} DA"));
+        // Dette du client juste avant ce bon, pour l'afficher à côté : la dette totale actuelle l'inclut déjà.
+        var debtBefore = debtAfter - note.Remaining;
+        const string resteLabel = "Reste (dette totale du client)";
 
         PrintHelper.PrintBon(isPaymentOnly ? "Bon d'encaissement" : "Bon de livraison", note.Number, note.Date,
             [("Client", client?.Name ?? ""), ("Adresse", string.Join(", ", new[] { client?.Address, client?.City }.Where(s => !string.IsNullOrWhiteSpace(s)))),
-             ("Téléphone", client?.Phone ?? "")],
+             ("Téléphone", client?.Phone ?? ""), ("Ancien solde", $"{debtBefore:N2} DA")],
             ["Produit", "Montant / qté", "Coef. / prix", "Puce", "Facturé (DA)"],
             note.Lines.Select(l => new[]
             {
                 l.Product?.Name ?? "", l.Quantity.ToString("N2"), l.UnitPrice.ToString("0.####"), l.RecipientPhone ?? "", l.LineTotal.ToString("N2"),
             }).ToList(),
-            totals);
+            [("Montant encaissé", $"{note.AmountPaid:N2} DA"), (resteLabel, $"{debtAfter:N2} DA")],
+            emphasizedLabel: resteLabel);
     }
 
     private async Task SaveCoreAsync(bool print)
