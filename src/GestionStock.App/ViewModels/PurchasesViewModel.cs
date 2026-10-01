@@ -289,7 +289,7 @@ public partial class PurchasesViewModel : ViewModelBase
             editor.UnitCostText = l.UnitCost.ToString("0.####");
         }
         if (Lines.Count == 0) AddLine();
-        PaidText = order.AmountPaid > 0 ? order.AmountPaid.ToString("0.##") : "";
+        PaidText = order.AmountPaid != 0 ? order.AmountPaid.ToString("0.##") : "";
         IsFormOpen = true;
     }
 
@@ -298,8 +298,13 @@ public partial class PurchasesViewModel : ViewModelBase
     {
         if (SelectedPurchase == null) return;
         var order = SelectedPurchase.Order;
-        if (!Confirm($"Supprimer le bon d'achat {order.Number} ({order.Total:N2} DA) de « {order.Supplier?.CompanyName} » ?\n\n" +
-                     "Ses produits seront retirés du stock et la dette envers le fournisseur corrigée.\nCette action est définitive.")) return;
+        var isPaymentOnly = order.Lines.Count == 0;
+        var question = isPaymentOnly
+            ? $"Supprimer le bon de règlement {order.Number} ({order.AmountPaid:N2} DA) de « {order.Supplier?.CompanyName} » ?\n\n" +
+              "La dette envers le fournisseur sera corrigée en conséquence."
+            : $"Supprimer le bon d'achat {order.Number} ({order.Total:N2} DA) de « {order.Supplier?.CompanyName} » ?\n\n" +
+              "Ses produits seront retirés du stock et la dette envers le fournisseur corrigée.";
+        if (!Confirm(question + "\nCette action est définitive.")) return;
 
         if (!await TryAsync(() => _purchases.DeleteAsync(order.Id))) return;
         if (_editingOrder?.Id == order.Id)
@@ -353,17 +358,33 @@ public partial class PurchasesViewModel : ViewModelBase
     {
         if (Supplier == null) { Info("Sélectionnez un fournisseur."); return; }
 
-        var lines = new List<PurchaseLineInput>();
-        foreach (var (line, index) in Lines.Select((l, i) => (l, i + 1)))
-        {
-            if (line.Product == null) { Info($"Ligne {index} : choisissez un produit."); return; }
-            if (line.Quantity is not > 0) { Info($"Ligne {index} : la quantité ou le montant n'est pas valide."); return; }
-            if (line.UnitCost is not > 0) { Info($"Ligne {index} : le prix ou coefficient n'est pas valide."); return; }
-            lines.Add(new PurchaseLineInput(line.Product.Id, line.Quantity.Value, line.UnitCost.Value));
-        }
-
         var paid = string.IsNullOrWhiteSpace(PaidText) ? 0m : ParseDecimal(PaidText);
         if (paid == null) { Info("Le montant payé n'est pas un nombre valide."); return; }
+
+        // Une ligne à laquelle l'utilisateur n'a rien touché est ignorée ; s'il n'en reste aucune, c'est un bon
+        // de règlement (aucun produit, seulement un montant versé au fournisseur ou reçu de lui).
+        var filledLines = Lines.Where(l => l.Product != null
+            || !string.IsNullOrWhiteSpace(l.QuantityText) || !string.IsNullOrWhiteSpace(l.UnitCostText)).ToList();
+
+        var lines = new List<PurchaseLineInput>();
+        if (filledLines.Count == 0)
+        {
+            if (paid == 0m)
+            {
+                Info("Ajoutez un produit, ou saisissez un montant pour un simple règlement (positif = versé au fournisseur, négatif = reçu de lui).");
+                return;
+            }
+        }
+        else
+        {
+            foreach (var (line, index) in filledLines.Select((l, i) => (l, i + 1)))
+            {
+                if (line.Product == null) { Info($"Ligne {index} : choisissez un produit."); return; }
+                if (line.Quantity is not > 0) { Info($"Ligne {index} : la quantité ou le montant n'est pas valide."); return; }
+                if (line.UnitCost is not > 0) { Info($"Ligne {index} : le prix ou coefficient n'est pas valide."); return; }
+                lines.Add(new PurchaseLineInput(line.Product.Id, line.Quantity.Value, line.UnitCost.Value));
+            }
+        }
 
         var editing = _editingOrder;
         PurchaseOrder? saved = null;
@@ -375,9 +396,12 @@ public partial class PurchasesViewModel : ViewModelBase
         ResetForm();
         IsFormOpen = false;
         await ReloadAfterChangeAsync();
-        Info(editing == null
-            ? $"Bon d'achat {saved.Number} enregistré ({saved.Total:N2} DA). Le stock a été mis à jour."
-            : $"Bon d'achat {saved.Number} modifié ({saved.Total:N2} DA). Le stock, la dette fournisseur et le rapport ont été mis à jour.");
+        if (editing != null)
+            Info($"Bon d'achat {saved.Number} modifié ({saved.Total:N2} DA). Le stock, la dette fournisseur et le rapport ont été mis à jour.");
+        else
+            Info(lines.Count == 0
+                ? $"Bon de règlement {saved.Number} enregistré ({saved.AmountPaid:N2} DA)."
+                : $"Bon d'achat {saved.Number} enregistré ({saved.Total:N2} DA). Le stock a été mis à jour.");
         if (print) await PrintOrderAsync(saved.Id);
     }
 

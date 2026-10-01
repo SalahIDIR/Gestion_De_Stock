@@ -58,45 +58,59 @@ public class PurchaseService
         return rates;
     }
 
-    /// <summary>Crée un bon d'achat, ajoute les quantités au stock et écrit le journal, le tout dans une transaction.</summary>
+    /// <summary>
+    /// Crée un bon d'achat, ajoute les quantités au stock et écrit le journal, le tout dans une transaction.
+    /// Un bon sans aucune ligne est un « bon de règlement » : il ne contient qu'un montant versé au fournisseur
+    /// (positif) ou reçu de lui (négatif) et modifie sa dette d'autant, sans toucher au stock.
+    /// </summary>
     public async Task<PurchaseOrder> CreateAsync(PurchaseInput input)
     {
-        if (input.Lines.Count == 0) throw new BusinessException("Ajoutez au moins un produit au bon d'achat.");
+        var isPaymentOnly = input.Lines.Count == 0;
 
         await using var db = await _factory.CreateDbContextAsync();
         if (!await db.Suppliers.AnyAsync(s => s.Id == input.SupplierId))
             throw new BusinessException("Sélectionnez un fournisseur.");
 
-        var productIds = input.Lines.Select(l => l.ProductId).Distinct().ToList();
-        var products = await db.Products.Where(p => productIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
-
         var order = new PurchaseOrder { Date = input.Date, SupplierId = input.SupplierId };
         var movements = new List<(StockMovement Movement, PurchaseLine Line)>();
 
-        foreach (var line in BuildLines(input.Lines, products))
+        if (isPaymentOnly)
         {
-            order.Lines.Add(line);
-            products[line.ProductId].StockBalance += line.Quantity;
-            movements.Add((new StockMovement
-            {
-                Date = input.Date,
-                ProductId = line.ProductId,
-                Quantity = line.Quantity,
-                Kind = StockMovementKind.Purchase,
-            }, line));
+            if (input.AmountPaid == 0)
+                throw new BusinessException("Un bon sans produit doit avoir un montant non nul.");
+            order.Total = 0;
+            order.AmountPaid = input.AmountPaid;
         }
+        else
+        {
+            var productIds = input.Lines.Select(l => l.ProductId).Distinct().ToList();
+            var products = await db.Products.Where(p => productIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
 
-        order.Total = order.Lines.Sum(l => l.LineTotal);
-        if (input.AmountPaid < 0 || input.AmountPaid > order.Total)
-            throw new BusinessException("Le montant payé doit être compris entre 0 et le total du bon.");
-        order.AmountPaid = input.AmountPaid;
+            foreach (var line in BuildLines(input.Lines, products))
+            {
+                order.Lines.Add(line);
+                products[line.ProductId].StockBalance += line.Quantity;
+                movements.Add((new StockMovement
+                {
+                    Date = input.Date,
+                    ProductId = line.ProductId,
+                    Quantity = line.Quantity,
+                    Kind = StockMovementKind.Purchase,
+                }, line));
+            }
+
+            order.Total = order.Lines.Sum(l => l.LineTotal);
+            if (input.AmountPaid < 0 || input.AmountPaid > order.Total)
+                throw new BusinessException("Le montant payé doit être compris entre 0 et le total du bon.");
+            order.AmountPaid = input.AmountPaid;
+        }
 
         await using var tx = await db.Database.BeginTransactionAsync();
         order.Number = $"TMP-{Guid.NewGuid():N}";
         db.PurchaseOrders.Add(order);
         await db.SaveChangesAsync();
 
-        order.Number = $"BA-{order.Id:D6}";
+        order.Number = (isPaymentOnly ? "PAI-" : "BA-") + $"{order.Id:D6}";
         foreach (var (movement, line) in movements)
         {
             movement.PurchaseOrderId = order.Id;
@@ -116,8 +130,6 @@ public class PurchaseService
     /// </summary>
     public async Task<PurchaseOrder> UpdateAsync(int orderId, PurchaseInput input)
     {
-        if (input.Lines.Count == 0) throw new BusinessException("Ajoutez au moins un produit au bon d'achat.");
-
         await using var db = await _factory.CreateDbContextAsync();
         await using var tx = await db.Database.BeginTransactionAsync();
 
@@ -126,14 +138,32 @@ public class PurchaseService
         if (!await db.Suppliers.AnyAsync(s => s.Id == input.SupplierId))
             throw new BusinessException("Sélectionnez un fournisseur.");
 
+        var wasPaymentOnly = order.Lines.Count == 0;
+        var isPaymentOnly = input.Lines.Count == 0;
+        if (wasPaymentOnly && !isPaymentOnly)
+            throw new BusinessException("Un bon de règlement ne peut pas recevoir de produits : créez plutôt un nouveau bon d'achat.");
+        if (!wasPaymentOnly && isPaymentOnly)
+            throw new BusinessException("Un bon d'achat doit garder au moins un produit. Pour l'annuler, supprimez-le.");
+
         var productIds = order.Lines.Select(l => l.ProductId).Concat(input.Lines.Select(l => l.ProductId)).Distinct().ToList();
         var products = await db.Products.Where(p => productIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
 
-        var newLines = BuildLines(input.Lines, products);
-        var total = newLines.Sum(l => l.LineTotal);
-        if (input.AmountPaid < 0 || input.AmountPaid > total)
-            throw new BusinessException("Le montant payé doit être compris entre 0 et le total du bon.");
-        CheckStockAfterRemoval(order, products, newLines);
+        var newLines = new List<PurchaseLine>();
+        decimal total;
+        if (isPaymentOnly)
+        {
+            if (input.AmountPaid == 0)
+                throw new BusinessException("Un bon sans produit doit avoir un montant non nul.");
+            total = 0m;
+        }
+        else
+        {
+            newLines = BuildLines(input.Lines, products);
+            total = newLines.Sum(l => l.LineTotal);
+            if (input.AmountPaid < 0 || input.AmountPaid > total)
+                throw new BusinessException("Le montant payé doit être compris entre 0 et le total du bon.");
+            CheckStockAfterRemoval(order, products, newLines);
+        }
 
         var now = DateTime.Now;
         foreach (var old in order.Lines)

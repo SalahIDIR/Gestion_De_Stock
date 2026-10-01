@@ -189,4 +189,53 @@ public class PurchaseTests
 
         Assert.Equal(12_345m, debts[supplier.Id]);
     }
+
+    [Fact]
+    public async Task Payment_only_purchase_order_reduces_supplier_debt_without_touching_stock_and_is_numbered_PAI()
+    {
+        using var db = await TestDb.CreateAsync();
+        var (supplier, flexy, _) = await SetupAsync(db);
+        var purchases = new PurchaseService(db);
+        var suppliers = new SupplierService(db);
+
+        await purchases.CreateAsync(new PurchaseInput(supplier.Id, DateTime.Today, [new PurchaseLineInput(flexy.Id, 100_000m, 0.97m)], 0m)); // dette 97 000
+
+        var payment = await purchases.CreateAsync(new PurchaseInput(supplier.Id, DateTime.Today, [], 40_000m));
+
+        Assert.Equal("PAI-000002", payment.Number);
+        Assert.Equal(0m, payment.Total);
+        Assert.Equal(40_000m, payment.AmountPaid);
+        Assert.Equal(57_000m, (await suppliers.GetDebtsAsync())[supplier.Id]);
+        Assert.Equal(100_000m, (await new ProductService(db).ListAsync()).Single(p => p.Id == flexy.Id).StockBalance); // stock inchangé
+    }
+
+    [Fact]
+    public async Task Payment_only_purchase_order_cannot_be_zero_but_a_negative_amount_is_money_received_from_the_supplier()
+    {
+        using var db = await TestDb.CreateAsync();
+        var (supplier, _, _) = await SetupAsync(db);
+        var purchases = new PurchaseService(db);
+        var suppliers = new SupplierService(db);
+
+        await Assert.ThrowsAsync<BusinessException>(() => purchases.CreateAsync(new PurchaseInput(supplier.Id, DateTime.Today, [], 0m)));
+
+        // Négatif = reçu du fournisseur (ex. remboursement) : augmente ce qu'on lui doit.
+        await purchases.CreateAsync(new PurchaseInput(supplier.Id, DateTime.Today, [], -15_000m));
+        Assert.Equal(15_000m, (await suppliers.GetDebtsAsync())[supplier.Id]);
+    }
+
+    [Fact]
+    public async Task Updating_a_purchase_order_cannot_switch_between_payment_only_and_with_products()
+    {
+        using var db = await TestDb.CreateAsync();
+        var (supplier, flexy, _) = await SetupAsync(db);
+        var purchases = new PurchaseService(db);
+
+        var order = await purchases.CreateAsync(new PurchaseInput(supplier.Id, DateTime.Today, [new PurchaseLineInput(flexy.Id, 1_000m, 0.97m)], 0m));
+        await Assert.ThrowsAsync<BusinessException>(() => purchases.UpdateAsync(order.Id, new PurchaseInput(supplier.Id, DateTime.Today, [], 500m)));
+
+        var payment = await purchases.CreateAsync(new PurchaseInput(supplier.Id, DateTime.Today, [], 10_000m));
+        await Assert.ThrowsAsync<BusinessException>(() => purchases.UpdateAsync(payment.Id,
+            new PurchaseInput(supplier.Id, DateTime.Today, [new PurchaseLineInput(flexy.Id, 1_000m, 0.97m)], 0m)));
+    }
 }
