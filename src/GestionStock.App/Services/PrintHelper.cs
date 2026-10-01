@@ -64,10 +64,12 @@ public static class PrintHelper
     /// <summary>
     /// Imprime un bon (livraison, encaissement ou achat) : titre et numéro, informations du tiers, lignes, puis totaux.
     /// <paramref name="emphasizedLabel"/> affiche ce total précis dans une police plus grande que les autres.
+    /// <paramref name="highlightBeforeTable"/> affiche une ligne à part, alignée à droite et agrandie, juste avant le
+    /// tableau des produits (ex. l'ancien solde du client).
     /// </summary>
     public static void PrintBon(string title, string number, DateTime date, IReadOnlyList<(string Label, string Value)> info,
         IReadOnlyList<string> headers, IReadOnlyList<string[]> rows, IReadOnlyList<(string Label, string Value)> totals,
-        string? emphasizedLabel = null)
+        string? emphasizedLabel = null, (string Label, string Value)? highlightBeforeTable = null)
     {
         var dialog = new PrintDialog();
         if (dialog.ShowDialog() != true) return;
@@ -91,6 +93,14 @@ public static class PrintHelper
             infoParagraph.Inlines.Add(new Run(value) { FontWeight = FontWeights.SemiBold });
         }
         doc.Blocks.Add(infoParagraph);
+
+        if (highlightBeforeTable is { } highlight)
+        {
+            var highlightParagraph = new Paragraph { TextAlignment = TextAlignment.Right, Margin = new Thickness(0, 0, 0, 16) };
+            highlightParagraph.Inlines.Add(new Run($"{highlight.Label} : ") { FontSize = 17 });
+            highlightParagraph.Inlines.Add(new Run(highlight.Value) { FontWeight = FontWeights.SemiBold, FontSize = 17 });
+            doc.Blocks.Add(highlightParagraph);
+        }
 
         if (rows.Count > 0)
         {

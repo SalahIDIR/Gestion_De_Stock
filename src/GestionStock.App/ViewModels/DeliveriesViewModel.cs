@@ -577,14 +577,15 @@ public partial class DeliveriesViewModel : ViewModelBase
 
         PrintHelper.PrintBon(isPaymentOnly ? "Bon d'encaissement" : "Bon de livraison", note.Number, note.Date,
             [("Client", client?.Name ?? ""), ("Adresse", string.Join(", ", new[] { client?.Address, client?.City }.Where(s => !string.IsNullOrWhiteSpace(s)))),
-             ("Téléphone", client?.Phone ?? ""), ("Ancien solde", $"{debtBefore:N2} DA")],
+             ("Téléphone", client?.Phone ?? "")],
             ["Produit", "Montant / qté", "Coef. / prix", "Puce", "Facturé (DA)"],
             note.Lines.Select(l => new[]
             {
                 l.Product?.Name ?? "", l.Quantity.ToString("N2"), l.UnitPrice.ToString("0.####"), l.RecipientPhone ?? "", l.LineTotal.ToString("N2"),
             }).ToList(),
             [("Montant encaissé", $"{note.AmountPaid:N2} DA"), (resteLabel, $"{debtAfter:N2} DA")],
-            emphasizedLabel: resteLabel);
+            emphasizedLabel: resteLabel,
+            highlightBeforeTable: ("Ancien solde", $"{debtBefore:N2} DA"));
     }
 
     private async Task SaveCoreAsync(bool print)
