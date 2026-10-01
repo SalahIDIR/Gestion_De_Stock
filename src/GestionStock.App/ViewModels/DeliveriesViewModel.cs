@@ -573,7 +573,7 @@ public partial class DeliveriesViewModel : ViewModelBase
         var isPaymentOnly = note.Lines.Count == 0;
         // Dette du client juste avant ce bon, pour l'afficher à côté : la dette totale actuelle l'inclut déjà.
         var debtBefore = debtAfter - note.Remaining;
-        const string resteLabel = "Reste (dette totale du client)";
+        const string resteLabel = "Reste ";
 
         PrintHelper.PrintBon(isPaymentOnly ? "Bon d'encaissement" : "Bon de livraison", note.Number, note.Date,
             [("Client", client?.Name ?? ""), ("Adresse", string.Join(", ", new[] { client?.Address, client?.City }.Where(s => !string.IsNullOrWhiteSpace(s)))),
