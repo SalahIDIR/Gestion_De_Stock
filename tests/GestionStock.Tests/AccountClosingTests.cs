@@ -53,7 +53,7 @@ public class AccountClosingTests
 
         Assert.Equal(98_000m, closing.TotalRecettes);
         Assert.Equal(0m, closing.TotalDepenses);
-        Assert.Equal(98_000m, closing.Cash);
+        Assert.Equal(97_000m, closing.Cash); // 98 000 d'espèce brute, moins le prélèvement de 1 000
         Assert.Equal(873_000m, closing.StockValue); // stock restant 900 000 (1 000 000 acheté − 100 000 vendu) × 0,97
         Assert.Equal(1_000m, closing.Prelevements);
         Assert.Equal("RAS", closing.Comments);
@@ -102,6 +102,20 @@ public class AccountClosingTests
         var closing = await c.Closings.ValidateAsync(DateTime.Now, prelevements: 3_000m, comments: null);
 
         Assert.Equal(totalSansPrelevement - 3_000m, closing.Total);
+    }
+
+    [Fact]
+    public async Task Prelevements_reduce_the_cash_carried_forward_as_the_next_closings_previous_cash()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today, [], 10_000m)); // encaissement pur, espèce brute = 10 000
+
+        var first = await c.Closings.ValidateAsync(DateTime.Now, prelevements: 4_000m, comments: null);
+        Assert.Equal(6_000m, first.Cash); // 10 000 d'espèce brute, moins le prélèvement de 4 000 : l'argent sorti n'y est plus
+
+        var preview = await c.Closings.PreviewAsync(DateTime.Now);
+        Assert.Equal(6_000m, preview.PreviousCash); // la clôture suivante reprend bien l'espèce nette, pas la brute
     }
 
     [Fact]

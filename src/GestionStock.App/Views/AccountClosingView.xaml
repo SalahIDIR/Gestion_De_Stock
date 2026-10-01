@@ -75,7 +75,7 @@
                             <ColumnDefinition Width="160"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Espèce" VerticalAlignment="Center" ToolTip="Calculée automatiquement : ancien espèce + recettes − dépenses ; modifiable dans « Recettes en entrées sorties »"/>
+                        <TextBlock Text="Espèce" VerticalAlignment="Center" ToolTip="Ancien espèce + recettes − dépenses − prélèvements ; le montant avant prélèvement est modifiable dans « Recettes en entrées sorties »"/>
                         <TextBlock Grid.Column="1" Text="{Binding Cash, StringFormat=N2}" HorizontalAlignment="Right" FontWeight="SemiBold"/>
                     </Grid>
                     <Grid Margin="0,0,0,10">

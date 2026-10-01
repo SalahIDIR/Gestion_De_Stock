@@ -42,10 +42,13 @@ public partial class AccountClosingViewModel : ViewModelBase
     public string PreviousDateText => PreviousDate?.ToString("dd/MM/yyyy HH:mm") ?? "Aucune (première clôture)";
 
     public decimal? Prelevements => ParseDecimal(PrelevementsText);
-    /// <summary>Espèce : calculée automatiquement, mais modifiable à la main ; la valeur saisie remplace alors le calcul
-    /// partout (Total, Bénéfice, Moyenne, et dans la clôture enregistrée).</summary>
-    public decimal Cash => ParseDecimal(CashText) ?? _autoCash;
-    public decimal Total => StockValue + ClientCredit + Cash - SupplierCredit - (Prelevements ?? 0m);
+    /// <summary>Espèce brute (ancien espèce + recettes − dépenses), avant prélèvement : calculée automatiquement,
+    /// mais modifiable à la main ; la valeur saisie remplace alors le calcul.</summary>
+    private decimal GrossCash => ParseDecimal(CashText) ?? _autoCash;
+    /// <summary>Espèce réellement en caisse, prélèvement déduit : c'est elle qui est affichée, enregistrée, et reprise
+    /// comme « ancien espèce » par la clôture suivante — l'argent prélevé n'y est plus.</summary>
+    public decimal Cash => GrossCash - (Prelevements ?? 0m);
+    public decimal Total => StockValue + ClientCredit + Cash - SupplierCredit;
     public decimal Benefice => Total - PreviousTotal;
 
     public decimal Moyenne
@@ -111,7 +114,7 @@ public partial class AccountClosingViewModel : ViewModelBase
             return;
 
         AccountClosing? saved = null;
-        var ok = await TryAsync(async () => saved = await _closings.ValidateAsync(Now, prelev.Value, Comments, Cash));
+        var ok = await TryAsync(async () => saved = await _closings.ValidateAsync(Now, prelev.Value, Comments, GrossCash));
         if (!ok || saved == null) return;
 
         Differ();

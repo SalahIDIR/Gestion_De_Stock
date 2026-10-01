@@ -63,16 +63,18 @@ public class AccountClosingService
 
     /// <summary>
     /// Enregistre définitivement une nouvelle clôture ; elle devient le point de départ de la suivante.
-    /// <paramref name="cashOverride"/> permet de remplacer l'espèce calculée automatiquement par une valeur saisie à la main
-    /// (le reste — stock, crédits, prélèvements — n'est jamais modifiable).
+    /// <paramref name="cashOverride"/> permet de remplacer l'espèce calculée automatiquement (avant prélèvement) par
+    /// une valeur saisie à la main. L'espèce enregistrée — et donc reprise comme « ancien espèce » par la clôture
+    /// suivante — est toujours nette du prélèvement : l'argent sorti de la caisse n'y est plus.
     /// </summary>
     public async Task<AccountClosing> ValidateAsync(DateTime now, decimal prelevements, string? comments, decimal? cashOverride = null)
     {
         if (prelevements < 0) throw new BusinessException("Le prélèvement ne peut pas être négatif.");
 
         var preview = await PreviewAsync(now);
-        var cash = cashOverride ?? preview.Cash;
-        var total = preview.StockValue + preview.ClientCredit + cash - preview.SupplierCredit - prelevements;
+        var grossCash = cashOverride ?? preview.Cash;
+        var cash = grossCash - prelevements;
+        var total = preview.StockValue + preview.ClientCredit + cash - preview.SupplierCredit;
         var benefice = total - preview.PreviousTotal;
         var days = preview.PreviousDate.HasValue ? Math.Max(1m, (decimal)(now - preview.PreviousDate.Value).TotalDays) : 1m;
         var moyenne = Math.Round(benefice / days, 2, MidpointRounding.AwayFromZero);
