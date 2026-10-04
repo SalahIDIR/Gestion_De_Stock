@@ -33,6 +33,7 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand] private void ShowTransactionsReport() => CurrentPage = ActivatorUtilities.CreateInstance<TransactionsReportViewModel>(_services);
     [RelayCommand] private void ShowProductBalance() => CurrentPage = ActivatorUtilities.CreateInstance<ProductBalanceViewModel>(_services);
     [RelayCommand] private void ShowAccountClosing() => CurrentPage = ActivatorUtilities.CreateInstance<AccountClosingViewModel>(_services);
+    [RelayCommand] private void ShowMessages() => CurrentPage = ActivatorUtilities.CreateInstance<MessagesViewModel>(_services);
     [RelayCommand] private void ShowReport() => CurrentPage = ActivatorUtilities.CreateInstance<ReportViewModel>(_services);
     [RelayCommand] private void ShowSettings() => CurrentPage = ActivatorUtilities.CreateInstance<SettingsViewModel>(_services, CurrentUser);
 }

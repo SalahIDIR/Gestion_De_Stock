@@ -19,6 +19,7 @@ public partial class OperatorRouting : ObservableObject
         _successKeyword = op.SuccessKeyword ?? "";
         _confirmationViaSms = op.ConfirmationViaSms;
         _balanceUssdCode = op.BalanceUssdCode ?? "";
+        _hiLinkHost = op.HiLinkHost ?? "";
     }
 
     public Operator Operator { get; }
@@ -34,6 +35,8 @@ public partial class OperatorRouting : ObservableObject
     [ObservableProperty] private bool _confirmationViaSms;
     /// <summary>Code USSD sans confirmation qui renvoie le solde de crédit disponible sur la puce (ex. *766#).</summary>
     [ObservableProperty] private string _balanceUssdCode;
+    /// <summary>Adresse IP du modem en mode HiLink (ex. 192.168.8.1), si ce modem n'a pas de port COM.</summary>
+    [ObservableProperty] private string _hiLinkHost;
 }
 
 public partial class SettingsViewModel : ViewModelBase
@@ -102,7 +105,7 @@ public partial class SettingsViewModel : ViewModelBase
     {
         if (row == null) return;
         var ok = await TryAsync(() => _settings.SaveOperatorRoutingAsync(row.Operator.Id, row.ComPort, row.UssdTemplate,
-            row.ConfirmKeystroke, row.SuccessKeyword, row.ConfirmationViaSms, row.BalanceUssdCode));
+            row.ConfirmKeystroke, row.SuccessKeyword, row.ConfirmationViaSms, row.BalanceUssdCode, row.HiLinkHost));
         if (ok) Info($"Routage de {row.Name} enregistré.");
     }
 
