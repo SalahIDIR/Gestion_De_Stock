@@ -53,6 +53,11 @@ public class Operator
     public bool ConfirmationViaSms { get; set; }
     /// <summary>Code USSD sans confirmation qui renvoie le solde de crédit disponible sur la puce (ex. *766# pour Djezzy).</summary>
     public string? BalanceUssdCode { get; set; }
+    /// <summary>
+    /// Adresse IP du modem en mode HiLink (ex. 192.168.8.1), s'il n'a pas de port COM (le mode HiLink n'en expose
+    /// pas) : utilisée pour lire ses SMS via l'API web locale du modem plutôt que par port série.
+    /// </summary>
+    public string? HiLinkHost { get; set; }
 
     public override string ToString() => Name;
 }
