@@ -68,7 +68,7 @@ public sealed class AtClient : IDisposable
     {
         try
         {
-            return _port.ReadLine().TrimEnd('\r');
+            return _port.ReadLine().Trim();
         }
         catch (TimeoutException)
         {
