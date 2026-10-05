@@ -52,7 +52,7 @@ public class SettingsService
     /// </summary>
     public async Task SaveOperatorRoutingAsync(int operatorId, string? comPort, string? ussdTemplate,
         string? confirmKeystroke = null, string? successKeyword = null, bool confirmationViaSms = false,
-        string? balanceUssdCode = null, string? hiLinkHost = null)
+        string? balanceUssdCode = null)
     {
         comPort = string.IsNullOrWhiteSpace(comPort) ? null : comPort.Trim().ToUpperInvariant();
         if (comPort != null && !System.Text.RegularExpressions.Regex.IsMatch(comPort, @"^COM\d{1,3}$"))
@@ -74,7 +74,6 @@ public class SettingsService
         op.SuccessKeyword = string.IsNullOrWhiteSpace(successKeyword) ? null : successKeyword.Trim();
         op.ConfirmationViaSms = confirmationViaSms;
         op.BalanceUssdCode = string.IsNullOrWhiteSpace(balanceUssdCode) ? null : balanceUssdCode.Trim();
-        op.HiLinkHost = string.IsNullOrWhiteSpace(hiLinkHost) ? null : hiLinkHost.Trim();
         await db.SaveChangesAsync();
     }
 }

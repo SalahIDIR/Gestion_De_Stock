@@ -84,8 +84,6 @@ public partial class App : Application
         services.AddSingleton<IModemPort, SerialModemPort>();
         services.AddSingleton<CreditTransferService>();
         services.AddSingleton<VoiceCommandService>();
-        services.AddSingleton<IHiLinkTransport, HiLinkHttpTransport>();
-        services.AddSingleton<HiLinkMessagesService>();
         return services.BuildServiceProvider();
     }
 }

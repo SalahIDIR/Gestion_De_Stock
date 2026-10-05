@@ -126,6 +126,5 @@
         <DataTemplate DataType="{x:Type vm:TransactionsReportViewModel}"><views:TransactionsReportView/></DataTemplate>
         <DataTemplate DataType="{x:Type vm:ProductBalanceViewModel}"><views:ProductBalanceView/></DataTemplate>
         <DataTemplate DataType="{x:Type vm:AccountClosingViewModel}"><views:AccountClosingView/></DataTemplate>
-        <DataTemplate DataType="{x:Type vm:MessagesViewModel}"><views:MessagesView/></DataTemplate>
     </Application.Resources>
 </Application>
