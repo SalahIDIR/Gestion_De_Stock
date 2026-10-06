@@ -1,4 +1,11 @@
 <Application x:Class="GestionStock.Puces.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             StartupUri="MainWindow.xaml"/>
+             xmlns:vm="clr-namespace:GestionStock.Puces.ViewModels"
+             xmlns:views="clr-namespace:GestionStock.Puces.Views"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <DataTemplate DataType="{x:Type vm:PortSetupViewModel}"><views:PortSetupView/></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ModemsViewModel}"><views:ModemsView/></DataTemplate>
+    </Application.Resources>
+</Application>
