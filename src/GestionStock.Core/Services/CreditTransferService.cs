@@ -29,12 +29,12 @@ public interface IModemPort
 /// <summary>
 /// Implémentation réelle par port série, avec les commandes AT standard (AT, AT+CUSD pour l'USSD, AT+CMGF/AT+CMGL/
 /// AT+CMGD pour lire puis effacer un SMS en mode texte). N'a pas pu être testée sur un modem physique : le débit
-/// (9600 bauds), le format exact des réponses et les délais varient selon le modem et devront très probablement être
+/// (115200 bauds, comme sur la clé Vodafone K3772-H), le format exact des réponses et les délais varient selon le modem et devront très probablement être
 /// ajustés une fois essayés avec du vrai matériel.
 /// </summary>
 public class SerialModemPort : IModemPort
 {
-    private const int BaudRate = 9600;
+    private const int BaudRate = 115200;
     private static readonly TimeSpan AtTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SmsPollInterval = TimeSpan.FromSeconds(2);
 
