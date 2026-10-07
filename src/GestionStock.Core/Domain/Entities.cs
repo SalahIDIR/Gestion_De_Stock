@@ -241,7 +241,12 @@ public class DeliveryLine
     public string? UssdMessage { get; set; }
 }
 
-public enum UssdSendStatus { Sent, Failed }
+/// <summary>
+/// Statut d'envoi d'un crédit. Stocké comme un entier : les valeurs existantes ne doivent jamais être renumérotées.
+/// <see cref="Uncertain"/> : la confirmation est partie mais aucun résultat clair n'est revenu, le crédit a donc
+/// peut-être été transféré ; la ligne n'est jamais renvoyée sans vérification par l'utilisateur.
+/// </summary>
+public enum UssdSendStatus { Sent, Failed, Uncertain }
 
 /// <summary>
 /// Une clôture de caisse (« Solde des comptes ») : photographie figée de la situation financière à un instant donné,

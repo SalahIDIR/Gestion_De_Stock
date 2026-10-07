@@ -8,22 +8,53 @@ namespace GestionStock.Tests;
 /// <summary>Modem factice : ne touche à aucun matériel. Les réponses USSD sont consommées dans l'ordre des appels.</summary>
 public class FakeModemPort : IModemPort
 {
+    private int _inside;
+
     public Queue<string?> UssdResponses { get; } = new();
     public string? SmsResponse { get; set; }
     public List<(string ComPort, string Code)> UssdCalls { get; } = new();
     public List<string> SmsCalls { get; } = new();
 
+    /// <summary>Durée simulée de chaque échange USSD, pour laisser à des envois simultanés l'occasion de se chevaucher.</summary>
+    public TimeSpan UssdDelay { get; set; }
+
+    /// <summary>Nombre maximal d'échanges USSD en cours au même moment (doit rester à 1 sur un même modem).</summary>
+    public int MaxConcurrentUssd { get; private set; }
+
+    /// <summary>Appelé à chaque échange USSD, avant la réponse (pour observer l'état de la base pendant un envoi).</summary>
+    public Action<string>? OnUssd { get; set; }
+
     public string? SendUssd(string comPort, string ussdCode, TimeSpan timeout)
     {
-        UssdCalls.Add((comPort, ussdCode));
-        return UssdResponses.Count > 0 ? UssdResponses.Dequeue() : null;
+        var inside = Interlocked.Increment(ref _inside);
+        MaxConcurrentUssd = Math.Max(MaxConcurrentUssd, inside);
+        try
+        {
+            if (UssdDelay > TimeSpan.Zero) Thread.Sleep(UssdDelay);
+            lock (UssdCalls) UssdCalls.Add((comPort, ussdCode));
+            OnUssd?.Invoke(ussdCode);
+            lock (UssdResponses) return UssdResponses.Count > 0 ? UssdResponses.Dequeue() : null;
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _inside);
+        }
     }
 
-    public string? WaitForSms(string comPort, TimeSpan timeout)
+    public IReadOnlySet<int> ListSmsIndexes(string comPort) => new HashSet<int>();
+
+    /// <summary>Renvoie <see cref="SmsResponse"/> seulement s'il est accepté (ex. s'il cite le bon numéro), comme le vrai modem.</summary>
+    public string? WaitForSms(string comPort, IReadOnlySet<int> existing, Func<string, bool> accept, TimeSpan timeout)
     {
         SmsCalls.Add(comPort);
-        return SmsResponse;
+        return SmsResponse != null && accept(SmsResponse) ? SmsResponse : null;
     }
+
+    /// <summary>Résultat de CheckLink par port ; un port absent est considéré comme débranché.</summary>
+    public Dictionary<string, ModemCheck> LinkChecks { get; } = new();
+
+    public ModemCheck CheckLink(string comPort)
+        => LinkChecks.TryGetValue(comPort, out var check) ? check : new ModemCheck(false, "Le modem ne répond pas.");
 }
 
 public class CreditTransferTests
@@ -31,9 +62,9 @@ public class CreditTransferTests
     private sealed record Ctx(TestDb Db, Client Client, Product Flexy, Product Cards, DeliveryService Deliveries, FakeModemPort Modem, CreditTransferService Transfers);
 
     /// <summary>Djezzy configuré comme décrit par l'utilisateur : *760*{numero}*{montant}*2008#, confirmation "1", succès si "TRANSFERE" (pas par SMS).</summary>
-    private static async Task<Ctx> SetupAsync(bool viaSms = false)
+    private static async Task<Ctx> SetupAsync(bool viaSms = false, bool onDisk = false)
     {
-        var db = await TestDb.CreateAsync();
+        var db = onDisk ? await TestDb.CreateOnDiskAsync() : await TestDb.CreateAsync();
         var supplier = await new SupplierService(db).SaveAsync(new Supplier { Reference = "F1", CompanyName = "Grossiste" });
         var products = await new ProductService(db).ListAsync();
         var flexy = products.Single(p => p.Name == "Flexy");
@@ -129,7 +160,7 @@ public class CreditTransferTests
     }
 
     [Fact]
-    public async Task Confirmation_via_sms_fails_if_no_sms_arrives_before_the_timeout()
+    public async Task Confirmation_via_sms_is_uncertain_if_no_sms_arrives_before_the_timeout()
     {
         var c = await SetupAsync(viaSms: true);
         using var _ = c.Db;
@@ -141,6 +172,143 @@ public class CreditTransferTests
         var results = await c.Transfers.SendPendingAsync(note.Id);
 
         Assert.False(results[0].Success);
+        Assert.Equal(UssdSendStatus.Uncertain, (await LineOf(c, note.Id)).UssdStatus); // confirmé : le crédit est peut-être parti
+    }
+
+    [Fact]
+    public async Task An_sms_that_does_not_cite_the_recipient_is_not_taken_as_its_confirmation()
+    {
+        var c = await SetupAsync(viaSms: true);
+        using var _ = c.Db;
+        c.Modem.UssdResponses.Enqueue("Vous voulez transferer 10000 DA a 0778123456 ! 1 OK, 0 annuler");
+        c.Modem.UssdResponses.Enqueue("Votre demande est prise en charge, un sms vous sera envoye");
+        // SMS en retard d'un transfert précédent, vers un autre numéro du client.
+        c.Modem.SmsResponse = "Vous avez transfere 500 DA vers le 0661000000. TRANSFERE-99";
+
+        var note = await CreateNoteAsync(c);
+        var results = await c.Transfers.SendPendingAsync(note.Id);
+
+        Assert.Equal(UssdSendStatus.Uncertain, results[0].Status);
+    }
+
+    [Fact]
+    public async Task No_answer_to_the_confirmation_is_uncertain_and_never_resent_without_an_explicit_request()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        c.Modem.UssdResponses.Enqueue("VOUS VOULEZ TRANSFERER 10000 DA... 1: POUR CONFIRMER"); // puis plus rien
+
+        var note = await CreateNoteAsync(c);
+        var first = await c.Transfers.SendPendingAsync(note.Id);
+        Assert.Equal(UssdSendStatus.Uncertain, first[0].Status);
+        Assert.Equal(2, c.Modem.UssdCalls.Count); // le code et la confirmation sont partis
+
+        var retry = await c.Transfers.SendPendingAsync(note.Id); // « Renvoyer » simple : la ligne incertaine est laissée
+        Assert.Empty(retry);
+        Assert.Equal(2, c.Modem.UssdCalls.Count);
+
+        c.Modem.UssdResponses.Enqueue("VOUS VOULEZ TRANSFERER...");
+        c.Modem.UssdResponses.Enqueue("10000 DA TRANSFERE");
+        var forced = await c.Transfers.SendPendingAsync(note.Id, resendUncertain: true); // l'utilisateur a vérifié : pas reçu
+        Assert.True(forced[0].Success);
+        Assert.Equal(UssdSendStatus.Sent, (await LineOf(c, note.Id)).UssdStatus);
+    }
+
+    [Fact]
+    public async Task An_uncertain_line_can_be_marked_as_sent_after_checking()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        c.Modem.UssdResponses.Enqueue("VOUS VOULEZ TRANSFERER 10000 DA... 1: POUR CONFIRMER");
+
+        var note = await CreateNoteAsync(c);
+        await c.Transfers.SendPendingAsync(note.Id);
+        var marked = await c.Transfers.MarkUncertainAsSentAsync(note.Id);
+
+        Assert.Equal(1, marked);
+        Assert.Equal(UssdSendStatus.Sent, (await LineOf(c, note.Id)).UssdStatus);
+        Assert.Empty(await c.Transfers.SendPendingAsync(note.Id, resendUncertain: true)); // plus jamais renvoyée
+    }
+
+    [Fact]
+    public async Task The_line_is_saved_as_uncertain_before_the_confirmation_is_sent()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        c.Modem.UssdResponses.Enqueue("VOUS VOULEZ TRANSFERER...");
+        c.Modem.UssdResponses.Enqueue("10000 DA TRANSFERE");
+        var note = await CreateNoteAsync(c);
+
+        UssdSendStatus? statusWhenConfirming = null;
+        c.Modem.OnUssd = code =>
+        {
+            if (code != "1") return;
+            using var db = c.Db.CreateDbContext();
+            statusWhenConfirming = db.DeliveryLines.Single(l => l.DeliveryNoteId == note.Id).UssdStatus;
+        };
+        await c.Transfers.SendPendingAsync(note.Id);
+
+        // Si l'application plantait pendant la confirmation, la ligne ne serait pas renvoyée automatiquement.
+        Assert.Equal(UssdSendStatus.Uncertain, statusWhenConfirming);
+        Assert.Equal(UssdSendStatus.Sent, (await LineOf(c, note.Id)).UssdStatus);
+    }
+
+    [Fact]
+    public async Task Two_lines_of_the_same_note_are_sent_one_after_the_other()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        foreach (var r in new[] { "INVITE 1", "TRANSFERE 1", "INVITE 2", "TRANSFERE 2" }) c.Modem.UssdResponses.Enqueue(r);
+
+        var note = await c.Deliveries.CreateAsync(new DeliveryInput(c.Client.Id, DateTime.Today,
+            [new DeliveryLineInput(c.Flexy.Id, 1_000m, 1m, "0778111111"), new DeliveryLineInput(c.Flexy.Id, 2_000m, 1m, "0778222222")], 0m));
+        var results = await c.Transfers.SendPendingAsync(note.Id);
+
+        Assert.All(results, r => Assert.True(r.Success));
+        Assert.Equal(["*760*0778111111*1000*2008#", "1", "*760*0778222222*2000*2008#", "1"], c.Modem.UssdCalls.Select(x => x.Code));
+    }
+
+    [Fact]
+    public async Task Two_notes_sent_at_the_same_time_never_interleave_on_the_same_modem()
+    {
+        var c = await SetupAsync(onDisk: true);
+        using var _ = c.Db;
+        c.Modem.UssdDelay = TimeSpan.FromMilliseconds(100);
+        foreach (var r in new[] { "INVITE", "TRANSFERE", "INVITE", "TRANSFERE" }) c.Modem.UssdResponses.Enqueue(r);
+        var a = await CreateNoteAsync(c, "0778111111");
+        var b = await CreateNoteAsync(c, "0778222222");
+
+        var sending = new[] { c.Transfers.SendPendingAsync(a.Id), c.Transfers.SendPendingAsync(b.Id) };
+        Assert.True(c.Transfers.IsSending);
+        var results = await Task.WhenAll(sending);
+
+        Assert.False(c.Transfers.IsSending);
+        Assert.Equal(1, c.Modem.MaxConcurrentUssd);
+        // Chaque code est immédiatement suivi de sa propre confirmation : aucune session ne s'intercale dans l'autre.
+        var codes = c.Modem.UssdCalls.Select(x => x.Code).ToList();
+        Assert.Equal("1", codes[1]);
+        Assert.Equal("1", codes[3]);
+        Assert.All(results, r => Assert.True(r[0].Success));
+    }
+
+    [Theory]
+    [InlineData("Vous avez transfere 10000 DA vers le 0778123456.", "0778123456", true)]
+    [InlineData("Transfert vers 213778123456 effectue", "0778123456", true)]
+    [InlineData("Transfert vers 778 12 34 56 effectue", "0778123456", true)]
+    [InlineData("Vous avez transfere 500 DA vers le 0661000000.", "0778123456", false)]
+    [InlineData("Votre solde est de 5000 DA", "0778123456", false)]
+    public void MentionsNumber_matches_the_number_whatever_its_format(string sms, string phone, bool expected)
+    {
+        Assert.Equal(expected, CreditTransferService.MentionsNumber(sms, phone));
+    }
+
+    [Fact]
+    public void ParseSmsList_returns_every_message_with_its_index()
+    {
+        var listing = "+CMGL: 1,\"REC READ\",\"+213...\",,\"26/10/07,10:00:00+04\"\r\nAncien\r\n" +
+                      "+CMGL: 4,\"REC UNREAD\",\"+213...\",,\"26/10/07,10:05:00+04\"\r\nNouveau\r\nOK\r\n";
+
+        Assert.Equal([(1, "Ancien"), (4, "Nouveau")], SerialModemPort.ParseSmsList(listing));
     }
 
     [Fact]
@@ -242,6 +410,50 @@ public class CreditTransferTests
         var djezzy = results.Single(r => r.OperatorName == "Djezzy");
         Assert.False(djezzy.Success);
         Assert.Equal("Aucune réponse du modem.", djezzy.Message);
+    }
+
+    [Fact]
+    public async Task CheckConnectionsAsync_reports_each_operator_and_sends_nothing_to_the_operator()
+    {
+        var c = await SetupAsync(); // seul Djezzy a un port COM configuré dans SetupAsync
+        using var _ = c.Db;
+        c.Modem.LinkChecks["COM5"] = new ModemCheck(true, "En ligne.");
+
+        var results = await c.Transfers.CheckConnectionsAsync();
+
+        Assert.Equal(3, results.Count);
+        Assert.True(results.Single(r => r.OperatorName == "Djezzy").Online);
+        var ooredoo = results.Single(r => r.OperatorName == "Ooredoo");
+        Assert.False(ooredoo.Online);
+        Assert.Contains("non configuré", ooredoo.Message);
+        Assert.Empty(c.Modem.UssdCalls); // aucune requête USSD : le test est gratuit
+    }
+
+    [Fact]
+    public async Task CheckConnectionsAsync_reports_an_unreachable_modem_as_offline()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        // Aucun résultat pour COM5 : le faux modem le considère comme débranché.
+
+        var results = await c.Transfers.CheckConnectionsAsync();
+
+        var djezzy = results.Single(r => r.OperatorName == "Djezzy");
+        Assert.False(djezzy.Online);
+        Assert.Equal("Le modem ne répond pas.", djezzy.Message);
+    }
+
+    [Theory]
+    [InlineData("AT+CREG?\r\n+CREG: 0,1\r\nOK\r\n", true)]
+    [InlineData("+CREG: 2,5,\"1A2B\",\"00C3\"\r\nOK\r\n", true)]
+    [InlineData("+CEREG: 0,1\r\nOK\r\n", true)]
+    [InlineData("+CREG: 0,2\r\nOK\r\n", false)] // recherche de réseau en cours
+    [InlineData("+CREG: 0,3\r\nOK\r\n", false)] // inscription refusée
+    [InlineData("+CREG: 0,0\r\nOK\r\n", false)]
+    [InlineData("ERROR\r\n", false)]
+    public void IsRegistered_reads_the_network_registration_state(string reply, bool expected)
+    {
+        Assert.Equal(expected, SerialModemPort.IsRegistered(reply));
     }
 
     [Fact]

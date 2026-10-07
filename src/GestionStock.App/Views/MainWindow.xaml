@@ -62,6 +62,26 @@
                 <Button Content="Historique" Command="{Binding ShowReportCommand}" Style="{StaticResource NavButton}"/>
                 <Button Content="Paramètres" Command="{Binding ShowSettingsCommand}" Style="{StaticResource NavButton}"/>
             </StackPanel>
+
+            <!-- État des modems des opérateurs. Largeur fixe : menu replié, seules les pastilles restent visibles (infobulle au survol). -->
+            <StackPanel DockPanel.Dock="Bottom" Width="210" Margin="0,0,0,12">
+                <TextBlock Text="Opérateurs" Foreground="#B5C7DA" FontSize="12" Margin="18,0,0,4"
+                           Visibility="{Binding IsMenuOpen, Converter={StaticResource BoolToVis}}"/>
+                <ItemsControl ItemsSource="{Binding OperatorStatus.Operators}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal" Background="Transparent" ToolTip="{Binding Summary}">
+                                <Ellipse Width="10" Height="10" Margin="19,6,10,6"
+                                         Fill="{Binding State, Converter={StaticResource LinkStateToBrush}}"/>
+                                <TextBlock Text="{Binding Name}" Foreground="White" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Content="↻ Retester la connexion" Command="{Binding OperatorStatus.RefreshCommand}"
+                        Style="{StaticResource NavButton}" FontSize="12" Padding="18,8" Foreground="#B5C7DA"
+                        Visibility="{Binding IsMenuOpen, Converter={StaticResource BoolToVis}}"/>
+            </StackPanel>
             <Grid/>
         </DockPanel>
 

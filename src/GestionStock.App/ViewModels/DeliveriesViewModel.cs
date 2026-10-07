@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GestionStock.App.Services;
@@ -85,6 +86,7 @@ public record DeliveryLineRow(string ProductName, decimal? Quantity, decimal? Un
     {
         UssdSendStatus.Sent => "Envoyé",
         UssdSendStatus.Failed => "Échec",
+        UssdSendStatus.Uncertain => "⚠ Incertain",
         _ => "",
     };
 
@@ -119,6 +121,9 @@ public partial class DeliveriesViewModel : ViewModelBase
         _products = products;
         _creditTransfer = creditTransfer;
         _voice = voice;
+        // Abonnement faible : le service vit tout le temps de l'application, cette page est recréée à chaque visite.
+        WeakEventManager<CreditTransferService, EventArgs>.AddHandler(creditTransfer, nameof(CreditTransferService.SendingChanged),
+            (_, _) => Application.Current.Dispatcher.BeginInvoke(NotifySendCommandsChanged));
         Lines.CollectionChanged += (_, e) =>
         {
             if (e.NewItems != null)
@@ -222,16 +227,64 @@ public partial class DeliveriesViewModel : ViewModelBase
     /// <summary>Le bon sélectionné a au moins une ligne de crédit virtuel dont l'envoi USSD a échoué.</summary>
     public bool HasFailedCredit => SelectedDetails.Any(l => l.UssdStatus == UssdSendStatus.Failed);
 
-    private bool CanRetryCredit() => SelectedDelivery != null && HasFailedCredit;
+    /// <summary>Le bon sélectionné a au moins une ligne dont le crédit est peut-être parti (confirmation sans résultat clair).</summary>
+    public bool HasUncertainCredit => SelectedDetails.Any(l => l.UssdStatus == UssdSendStatus.Uncertain);
 
-    /// <summary>Retente l'envoi USSD des lignes en échec du bon sélectionné (celles déjà envoyées ne sont pas renvoyées).</summary>
+    /// <summary>Un bon est en cours d'enregistrement (et d'envoi de son crédit) : bloque un 2ème enregistrement.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SaveCommand), nameof(SaveAndPrintCommand))]
+    private bool _isSaving;
+
+    private bool CanSave() => !IsSaving && !_creditTransfer.IsSending;
+
+    private bool CanRetryCredit() => SelectedDelivery != null && (HasFailedCredit || HasUncertainCredit) && !_creditTransfer.IsSending;
+
+    private void NotifySendCommandsChanged()
+    {
+        SaveCommand.NotifyCanExecuteChanged();
+        SaveAndPrintCommand.NotifyCanExecuteChanged();
+        RetryCreditCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// Retente l'envoi USSD des lignes en échec du bon sélectionné (celles déjà envoyées ne sont jamais renvoyées).
+    /// Les lignes incertaines ne sont renvoyées qu'après vérification par l'utilisateur, qui peut aussi les marquer
+    /// comme envoyées.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanRetryCredit))]
     private async Task RetryCreditAsync()
     {
-        if (SelectedDelivery == null) return;
+        if (SelectedDelivery == null || _creditTransfer.IsSending) return;
         var noteId = SelectedDelivery.Note.Id;
+
+        var resendUncertain = false;
+        if (HasUncertainCredit)
+        {
+            var uncertain = string.Join("\n", SelectedDetails.Where(l => l.UssdStatus == UssdSendStatus.Uncertain)
+                .Select(l => $"• {l.ProductName} → {l.RecipientPhone} ({l.Quantity:N0} DA)"));
+            var answer = MessageBox.Show(
+                "Le crédit de ces lignes a PEUT-ÊTRE déjà été transféré :\n" + uncertain + "\n\n" +
+                "Vérifiez d'abord le solde ou l'historique de la puce, ou demandez au client.\n\n" +
+                "Oui : le client n'a PAS reçu le crédit → le renvoyer.\n" +
+                "Non : le client a bien reçu le crédit → marquer comme envoyé, sans renvoyer.\n" +
+                "Annuler : ne rien faire pour l'instant.",
+                "Gestion Stock", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel);
+            if (answer == MessageBoxResult.Cancel) return;
+            if (answer == MessageBoxResult.No)
+            {
+                if (!await TryAsync(() => _creditTransfer.MarkUncertainAsSentAsync(noteId))) return;
+                if (!HasFailedCredit)
+                {
+                    await TryAsync(ReloadProductsAndHistoryAsync);
+                    SelectedDelivery = History.FirstOrDefault(r => r.Note.Id == noteId);
+                    return;
+                }
+            }
+            resendUncertain = answer == MessageBoxResult.Yes;
+        }
+
         List<CreditTransferService.LineResult>? results = null;
-        if (!await TryAsync(async () => results = await _creditTransfer.SendPendingAsync(noteId))) return;
+        if (!await TryAsync(async () => results = await _creditTransfer.SendPendingAsync(noteId, resendUncertain))) return;
 
         await TryAsync(ReloadProductsAndHistoryAsync);
         SelectedDelivery = History.FirstOrDefault(r => r.Note.Id == noteId);
@@ -242,8 +295,18 @@ public partial class DeliveriesViewModel : ViewModelBase
     private static string CreditSummary(List<CreditTransferService.LineResult> results)
     {
         if (results.Count == 0) return "Aucun crédit à envoyer sur ce bon.";
-        var lines = results.Select(r => $"{(r.Success ? "✓" : "✗")} {r.ProductName} → {r.RecipientPhone} : {r.Message}");
-        return "Envoi du crédit :\n" + string.Join("\n", lines);
+        static string Mark(UssdSendStatus status) => status switch
+        {
+            UssdSendStatus.Sent => "✓",
+            UssdSendStatus.Uncertain => "⚠",
+            _ => "✗",
+        };
+        var lines = results.Select(r => $"{Mark(r.Status)} {r.ProductName} → {r.RecipientPhone} : {r.Message}");
+        var summary = "Envoi du crédit :\n" + string.Join("\n", lines);
+        if (results.Any(r => r.Status == UssdSendStatus.Uncertain))
+            summary += "\n\n⚠ Résultat incertain : le crédit est peut-être parti. Vérifiez le solde ou l'historique de la puce " +
+                       "avant d'utiliser « Renvoyer le crédit », pour ne pas l'envoyer deux fois.";
+        return summary;
     }
 
     private void RefreshTotals()
@@ -546,11 +609,29 @@ public partial class DeliveriesViewModel : ViewModelBase
         Info($"Bon {note.Number} supprimé.");
     }
 
-    [RelayCommand]
-    private Task SaveAsync() => SaveCoreAsync(print: false);
+    [RelayCommand(CanExecute = nameof(CanSave))]
+    private Task SaveAsync() => SaveGuardedAsync(print: false);
 
-    [RelayCommand]
-    private Task SaveAndPrintAsync() => SaveCoreAsync(print: true);
+    [RelayCommand(CanExecute = nameof(CanSave))]
+    private Task SaveAndPrintAsync() => SaveGuardedAsync(print: true);
+
+    /// <summary>
+    /// Un seul enregistrement à la fois, quel que soit le bouton (« Enregistrer » ou « Enregistrer et imprimer ») :
+    /// un double-clic ou deux boutons cliqués coup sur coup ne créent jamais deux bons ni deux envois de crédit.
+    /// </summary>
+    private async Task SaveGuardedAsync(bool print)
+    {
+        if (IsSaving || _creditTransfer.IsSending) return;
+        IsSaving = true;
+        try
+        {
+            await SaveCoreAsync(print);
+        }
+        finally
+        {
+            IsSaving = false;
+        }
+    }
 
     /// <summary>Imprime le bon en cours de modification tel qu'il est enregistré (sans les changements non enregistrés).</summary>
     [RelayCommand]

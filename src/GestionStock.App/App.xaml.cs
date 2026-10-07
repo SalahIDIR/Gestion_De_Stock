@@ -62,10 +62,14 @@ public partial class App : Application
             return;
         }
 
+        // Test des modems des 3 opérateurs : en cas de problème, un message est affiché mais l'application s'ouvre quand même.
+        new ConnectionCheckWindow(Services.GetRequiredService<OperatorStatusViewModel>()).ShowDialog();
+
         var main = new MainWindow(new MainViewModel(Services, login.LoggedInUser));
         MainWindow = main;
         ShutdownMode = ShutdownMode.OnMainWindowClose;
-        main.Show();    }
+        main.Show();
+    }
 
     private static IServiceProvider BuildServices()
     {
@@ -84,6 +88,7 @@ public partial class App : Application
         services.AddSingleton<IModemPort, SerialModemPort>();
         services.AddSingleton<CreditTransferService>();
         services.AddSingleton<VoiceCommandService>();
+        services.AddSingleton<OperatorStatusViewModel>();
         return services.BuildServiceProvider();
     }
 }

@@ -64,7 +64,7 @@
                     <Button Content="Modifier le bon" Command="{Binding EditCommand}"/>
                     <Button Content="Supprimer le bon" Command="{Binding DeleteCommand}" Style="{StaticResource DangerButton}"/>
                     <Button Content="Renvoyer le crédit" Command="{Binding RetryCreditCommand}"
-                            ToolTip="Retente l'envoi USSD des lignes en échec du bon sélectionné"/>
+                            ToolTip="Retente l'envoi des lignes en échec du bon sélectionné ; pour une ligne incertaine, demande d'abord de vérifier si le crédit est parti"/>
                 </StackPanel>
                 <TextBlock Text="Détail du bon sélectionné" Style="{StaticResource Section}" Margin="0,12,0,6"/>
             </StackPanel>
@@ -92,6 +92,9 @@
                             </DataTrigger>
                             <DataTrigger Binding="{Binding UssdStatus}" Value="Failed">
                                 <Setter Property="Background" Value="#1ADC2626"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding UssdStatus}" Value="Uncertain">
+                                <Setter Property="Background" Value="#33F59E0B"/>
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>

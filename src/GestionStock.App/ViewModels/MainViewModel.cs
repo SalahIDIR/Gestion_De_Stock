@@ -13,10 +13,14 @@ public partial class MainViewModel : ViewModelBase
     {
         _services = services;
         CurrentUser = user;
+        OperatorStatus = services.GetRequiredService<OperatorStatusViewModel>();
         ShowDeliveries();
     }
 
     public User CurrentUser { get; }
+
+    /// <summary>Connexion des modems des opérateurs, affichée en bas du menu.</summary>
+    public OperatorStatusViewModel OperatorStatus { get; }
 
     [ObservableProperty] private ViewModelBase? _currentPage;
 

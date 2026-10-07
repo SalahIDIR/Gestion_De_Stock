@@ -10,6 +10,7 @@
         <views:HexToRowBackgroundConverter x:Key="HexToRowBackground"/>
         <views:RiskToBrushConverter x:Key="RiskToBrush"/>
         <views:RiskToRowBackgroundConverter x:Key="RiskToRowBackground"/>
+        <views:LinkStateToBrushConverter x:Key="LinkStateToBrush"/>
         <SolidColorBrush x:Key="Accent" Color="#1F4E79"/>
         <SolidColorBrush x:Key="AccentDark" Color="#163A5A"/>
         <SolidColorBrush x:Key="Danger" Color="#B42318"/>
