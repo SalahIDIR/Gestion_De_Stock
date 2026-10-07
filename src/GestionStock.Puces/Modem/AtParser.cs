@@ -8,6 +8,18 @@ public static class AtParser
 {
     private static readonly Regex CusdRegex = new(@"\+CUSD:\s*(\d)(?:,""([^""]*)"")?", RegexOptions.IgnoreCase);
     private static readonly Regex CmglHeader = new(@"^\+CMGL:\s*(\d+),""([^""]*)"",""([^""]*)"",[^,]*,""([^""]*)""", RegexOptions.IgnoreCase);
+    private static readonly Regex CpmsRegex = new(@"\+CPMS:\s*""[^""]*"",(\d+),(\d+)", RegexOptions.IgnoreCase);
+
+    /// <summary>Occupation du stockage SMS actif à partir d'une réponse à « AT+CPMS? » (ex. 25 messages utilisés sur 25).</summary>
+    public static (int Used, int Total)? ParseStorageUsage(IEnumerable<string> lines)
+    {
+        foreach (var line in lines)
+        {
+            var match = CpmsRegex.Match(line);
+            if (match.Success) return (int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value));
+        }
+        return null;
+    }
 
     /// <summary>Statut 1 = session ouverte (une réponse est attendue), 2 = session fermée.</summary>
     public static (int Status, string Text)? ParseCusd(string line)

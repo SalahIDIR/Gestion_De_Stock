@@ -42,6 +42,10 @@ public sealed class AtClient : IDisposable
     /// <summary>Envoie une requête USSD et attend la réponse « +CUSD: » (qui arrive après le OK).</summary>
     public (int Status, string Text)? Ussd(string code, TimeSpan timeout)
     {
+        // Si la réponse arrive par SMS séparé (ex. solde Mobilis), il doit atterrir sur la SIM, pas la mémoire de la
+        // clé, sinon "Lire les SMS reçus" (qui ne regarde que la SIM) ne le verra jamais. Trop tard pour le faire
+        // après coup : il faut que ce soit déjà réglé avant l'arrivée du SMS.
+        Command("AT+CPMS=\"SM\",\"SM\",\"SM\"", TimeSpan.FromSeconds(5));
         _port.DiscardInBuffer();
         _port.WriteLine($"AT+CUSD=1,\"{code}\",15");
         var deadline = DateTime.UtcNow + timeout;
@@ -55,6 +59,12 @@ public sealed class AtClient : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// Ferme explicitement une session USSD restée ouverte (ex. une réponse qui se termine par un menu « 1:... »),
+    /// pour que la requête suivante ne soit pas refusée par le réseau (« max number of menu retries »).
+    /// </summary>
+    public void CancelUssd() => Command("AT+CUSD=2", TimeSpan.FromSeconds(5));
+
     /// <summary>Lit tous les SMS stockés sur la carte SIM (et non dans la mémoire interne de la clé).</summary>
     public List<SmsMessage> ReadSms()
     {
@@ -62,6 +72,13 @@ public sealed class AtClient : IDisposable
         Command("AT+CPMS=\"SM\",\"SM\",\"SM\"", TimeSpan.FromSeconds(5));
         var lines = Command("AT+CMGL=\"ALL\"", TimeSpan.FromSeconds(20));
         return AtParser.ParseCmgl(lines);
+    }
+
+    /// <summary>Occupation du stockage SMS actif (ex. 25/25 = plein, aucun nouveau SMS ne peut plus arriver).</summary>
+    public (int Used, int Total)? GetSimStorageUsage()
+    {
+        var lines = Command("AT+CPMS?", TimeSpan.FromSeconds(5));
+        return AtParser.ParseStorageUsage(lines);
     }
 
     private string? ReadLine()

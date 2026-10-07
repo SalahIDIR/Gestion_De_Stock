@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.IO;
 using System.IO.Ports;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -34,10 +35,28 @@ public interface IModemPort
     string? WaitForSms(string comPort, IReadOnlySet<int> existing, Func<string, bool> accept, TimeSpan timeout);
 
     /// <summary>
+    /// Attend les SMS absents de <paramref name="existing"/>, les recolle dans l'ordre d'arrivée (un message trop
+    /// long arrive parfois coupé en plusieurs SMS, ex. « ...DAT » puis « A est : 105.00... »), et les supprime.
+    /// Attend un peu après le premier message reçu, pour laisser le temps aux suivants d'arriver. Null si rien
+    /// n'arrive dans le délai donné.
+    /// </summary>
+    string? WaitForSmsBatch(string comPort, IReadOnlySet<int> existing, TimeSpan timeout);
+
+    /// <summary>
     /// Vérifie, sans rien envoyer à l'opérateur (ni USSD ni SMS, donc gratuit), que le modem répond, que la puce est
     /// prête et qu'elle est inscrite sur le réseau.
     /// </summary>
     ModemCheck CheckLink(string comPort);
+
+    /// <summary>Occupation du stockage SMS actif (ex. 25/25 = plein : le réseau ne peut plus livrer de nouveau SMS), ou null si la question échoue.</summary>
+    (int Used, int Total)? GetSmsStorageUsage(string comPort);
+
+    /// <summary>
+    /// Ferme explicitement une session USSD restée ouverte (ex. une réponse qui se termine par un menu « 1:... »),
+    /// pour qu'une requête suivante ne soit pas refusée par le réseau (« max number of menu retries »). Un échec ici
+    /// n'empêche jamais de continuer : au pire, la session expirera toute seule côté réseau.
+    /// </summary>
+    void CancelUssd(string comPort);
 }
 
 /// <summary>Résultat d'une vérification de liaison avec un modem : en ligne ou non, avec un message lisible.</summary>
@@ -62,16 +81,46 @@ public class SerialModemPort : IModemPort
             using var port = Open(comPort);
             port.WriteLine("AT");
             if (!ReadUntil(port, AtTimeout, "OK", "ERROR", out var atReply) || Contains(atReply, "ERROR"))
+            {
+                LogDiagnostic(comPort, "AT initial a echoue", atReply);
                 return null;
+            }
+            // Au cas où la réponse arrive par SMS séparé : doit être réglé dans cette même session, juste avant
+            // l'envoi, car rouvrir le port ensuite peut remettre le modem sur sa mémoire interne par défaut.
+            SelectSimStorage(port);
 
             port.WriteLine($"AT+CUSD=1,\"{ussdCode}\",15");
             if (!ReadUntil(port, timeout, "+CUSD:", "ERROR", out var reply) || !Contains(reply, "+CUSD:"))
+            {
+                LogDiagnostic(comPort, $"Pas de +CUSD: recu pour le code {ussdCode}", reply);
                 return null;
-            return ExtractQuoted(reply, "+CUSD:");
+            }
+            var text = ExtractQuoted(reply, "+CUSD:");
+            if (text == null) LogDiagnostic(comPort, "+CUSD: recu mais texte entre guillemets introuvable", reply);
+            return text == null ? null : DecodeIfUcs2Hex(text);
+        }
+        catch (Exception ex)
+        {
+            LogDiagnostic(comPort, "Exception pendant SendUssd", ex.ToString());
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Trace temporaire pour diagnostiquer un échange qui échoue sans raison apparente (ex. requête de solde sans
+    /// réponse alors que la liaison de base fonctionne) : écrit ce qui a réellement été capturé sur le port.
+    /// </summary>
+    private static void LogDiagnostic(string comPort, string label, string content)
+    {
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GestionStock", "modem-debug.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.AppendAllText(path, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {comPort} — {label} :\n{content}\n---\n");
         }
         catch (Exception)
         {
-            return null;
+            // Diagnostic seulement : ne doit jamais faire échouer l'appel réel.
         }
     }
 
@@ -82,6 +131,7 @@ public class SerialModemPort : IModemPort
             using var port = Open(comPort);
             port.WriteLine("AT+CMGF=1"); // mode texte (lisible), plutôt que le mode PDU par défaut
             ReadUntil(port, AtTimeout, "OK", "ERROR", out _);
+            SelectSimStorage(port);
             port.WriteLine("AT+CMGL=\"ALL\"");
             ReadUntil(port, AtTimeout, "OK", "ERROR", out var reply);
             return ParseSmsList(reply).Select(s => s.Index).ToHashSet();
@@ -99,6 +149,7 @@ public class SerialModemPort : IModemPort
             using var port = Open(comPort);
             port.WriteLine("AT+CMGF=1");
             ReadUntil(port, AtTimeout, "OK", "ERROR", out _);
+            SelectSimStorage(port);
 
             var deadline = DateTime.UtcNow + timeout;
             while (DateTime.UtcNow < deadline)
@@ -118,6 +169,52 @@ public class SerialModemPort : IModemPort
                 Thread.Sleep(SmsPollInterval);
             }
             return null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Délai supplémentaire laissé après la réception d'un SMS, pour recueillir d'éventuels SMS suivants.</summary>
+    private static readonly TimeSpan SmsBatchGrace = TimeSpan.FromSeconds(10);
+
+    public string? WaitForSmsBatch(string comPort, IReadOnlySet<int> existing, TimeSpan timeout)
+    {
+        try
+        {
+            using var port = Open(comPort);
+            port.WriteLine("AT+CMGF=1");
+            ReadUntil(port, AtTimeout, "OK", "ERROR", out _);
+            SelectSimStorage(port);
+
+            var collected = new List<(int Index, string Body)>();
+            var deadline = DateTime.UtcNow + timeout;
+            var quietDeadline = DateTime.MaxValue;
+            while (DateTime.UtcNow < deadline && DateTime.UtcNow < quietDeadline)
+            {
+                port.WriteLine("AT+CMGL=\"ALL\"");
+                if (ReadUntil(port, AtTimeout, "OK", "ERROR", out var reply))
+                {
+                    var fresh = ParseSmsList(reply)
+                        .Where(s => !existing.Contains(s.Index) && collected.All(c => c.Index != s.Index)).ToList();
+                    if (fresh.Count > 0)
+                    {
+                        collected.AddRange(fresh);
+                        quietDeadline = DateTime.UtcNow + SmsBatchGrace;
+                    }
+                }
+                Thread.Sleep(SmsPollInterval);
+            }
+            if (collected.Count == 0) return null;
+
+            foreach (var sms in collected)
+            {
+                port.WriteLine($"AT+CMGD={sms.Index}");
+                ReadUntil(port, AtTimeout, "OK", "ERROR", out _);
+            }
+            // Concaténé sans séparateur : un message coupé en plein mot ("...DAT" + "A est...") doit se recoller tel quel.
+            return string.Concat(collected.OrderBy(c => c.Index).Select(c => c.Body));
         }
         catch (Exception)
         {
@@ -155,6 +252,42 @@ public class SerialModemPort : IModemPort
         }
     }
 
+    public (int Used, int Total)? GetSmsStorageUsage(string comPort)
+    {
+        try
+        {
+            using var port = Open(comPort);
+            port.WriteLine("AT+CPMS?");
+            ReadUntil(port, AtTimeout, "OK", "ERROR", out var reply);
+            return ParseStorageUsage(reply);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    public void CancelUssd(string comPort)
+    {
+        try
+        {
+            using var port = Open(comPort);
+            port.WriteLine("AT+CUSD=2");
+            ReadUntil(port, AtTimeout, "OK", "ERROR", out _);
+        }
+        catch (Exception)
+        {
+            // Au pire, la session expirera toute seule côté réseau.
+        }
+    }
+
+    /// <summary>Occupation du 1er stockage d'une réponse à « AT+CPMS? » (ex. « +CPMS: "SM",25,25,... » → 25 sur 25).</summary>
+    internal static (int Used, int Total)? ParseStorageUsage(string reply)
+    {
+        var match = Regex.Match(reply, @"\+CPMS:\s*""[^""]*"",(\d+),(\d+)", RegexOptions.IgnoreCase);
+        return match.Success ? (int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value)) : null;
+    }
+
     /// <summary>
     /// Vrai si une réponse à « AT+CREG? » ou « AT+CEREG? » indique une inscription sur le réseau : état 1 (réseau
     /// de l'opérateur) ou 5 (itinérance), ex. « +CREG: 0,1 ».
@@ -165,9 +298,30 @@ public class SerialModemPort : IModemPort
         return match.Success && match.Groups[1].Value is "1" or "5";
     }
 
+    /// <summary>
+    /// Force le stockage des SMS sur la carte SIM plutôt que dans la mémoire interne du modem. Sans ça, un SMS reçu
+    /// pendant l'attente peut atterrir dans la mémoire du modem et devenir invisible à la lecture (« SM »), qui ne
+    /// regarde que la SIM. À refaire avant chaque envoi qui attend une réponse par SMS : le réglage n'est pas garanti
+    /// persistant d'une session à l'autre.
+    /// </summary>
+    private static void SelectSimStorage(SerialPort port)
+    {
+        port.WriteLine("AT+CPMS=\"SM\",\"SM\",\"SM\"");
+        ReadUntil(port, AtTimeout, "OK", "ERROR", out _);
+    }
+
     private static SerialPort Open(string comPort)
     {
-        var port = new SerialPort(comPort, BaudRate) { NewLine = "\r\n", ReadTimeout = 2000, WriteTimeout = 5000 };
+        var port = new SerialPort(comPort, BaudRate)
+        {
+            // "\r" seul, comme un vrai terminal série (et comme l'application Puces, qui fonctionne sur ce matériel) :
+            // "\r\n" laisse passer les commandes de base (AT, CPIN, CREG) mais semble empêcher la réponse USSD d'arriver.
+            NewLine = "\r",
+            ReadTimeout = 2000,
+            WriteTimeout = 5000,
+            DtrEnable = true,
+            RtsEnable = true,
+        };
         port.Open();
         port.DiscardInBuffer();
         return port;
@@ -198,12 +352,25 @@ public class SerialModemPort : IModemPort
 
     private static bool Contains(string text, string marker) => text.Contains(marker, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Le modem renvoie parfois le texte (et le numéro) en UCS2 hexadécimal, ex. "0041004200430044" pour "ABCD".
+    /// Seules les chaînes assez longues, de longueur multiple de 4 et uniquement hexadécimales sont décodées, pour ne
+    /// pas toucher un texte court qui ressemble par hasard à de l'hexadécimal.
+    /// </summary>
+    internal static string DecodeIfUcs2Hex(string text)
+    {
+        if (text.Length < 8 || text.Length % 4 != 0 || !text.All(Uri.IsHexDigit)) return text;
+        return Encoding.BigEndianUnicode.GetString(Convert.FromHexString(text));
+    }
+
     /// <summary>Extrait le texte entre le premier couple de guillemets suivant un marqueur (ex. le message d'un « +CUSD: 1,"…",15 »).</summary>
     internal static string? ExtractQuoted(string text, string afterMarker)
     {
         var markerIndex = text.IndexOf(afterMarker, StringComparison.OrdinalIgnoreCase);
         if (markerIndex < 0) return null;
-        var match = Regex.Match(text[(markerIndex + afterMarker.Length)..], "\"(.*?)\"");
+        // [^"]* et non .*? : certaines réponses USSD contiennent un vrai retour à la ligne dans le texte entre
+        // guillemets (ex. un menu "1:Plus de detail..."), et "." ne correspond pas à un retour à la ligne par défaut.
+        var match = Regex.Match(text[(markerIndex + afterMarker.Length)..], "\"([^\"]*)\"");
         return match.Success ? match.Groups[1].Value : null;
     }
 
@@ -225,16 +392,17 @@ public class SerialModemPort : IModemPort
             var header = Regex.Match(lines[i], @"^\+CMGL:\s*(\d+)");
             if (!header.Success) continue;
             var index = int.Parse(header.Groups[1].Value);
-            var body = new StringBuilder();
+            var bodyLines = new List<string>();
             var j = i + 1;
             while (j < lines.Count && !lines[j].StartsWith("+CMGL:", StringComparison.OrdinalIgnoreCase)
                    && !lines[j].Trim().Equals("OK", StringComparison.OrdinalIgnoreCase))
             {
-                if (body.Length > 0) body.Append(' ');
-                body.Append(lines[j].Trim());
+                bodyLines.Add(lines[j].Trim());
                 j++;
             }
-            if (body.Length > 0) all.Add((index, body.ToString()));
+            // Décodé ligne par ligne avant d'être recollé : un corps en UCS2 hexadécimal réparti sur plusieurs lignes
+            // ne serait plus reconnu comme de l'hexadécimal une fois l'espace de jonction inséré au milieu.
+            if (bodyLines.Count > 0) all.Add((index, string.Join(" ", bodyLines.Select(DecodeIfUcs2Hex))));
         }
         return all;
     }
@@ -324,8 +492,40 @@ public class CreditTransferService
                 results.Add(new BalanceResult(op.Name, false, "Port COM ou code de solde non configuré (page Paramètres)."));
                 continue;
             }
-            var reply = await OnPortAsync(op.ComPort, () => Task.Run(() => _modem.SendUssd(op.ComPort, op.BalanceUssdCode, UssdTimeout)));
-            results.Add(new BalanceResult(op.Name, reply != null, reply ?? "Aucune réponse du modem."));
+            var (success, message) = await OnPortAsync(op.ComPort, async () =>
+            {
+                var existingSms = op.ConfirmationViaSms ? await Task.Run(() => _modem.ListSmsIndexes(op.ComPort)) : new HashSet<int>();
+                var reply = await Task.Run(() => _modem.SendUssd(op.ComPort, op.BalanceUssdCode, UssdTimeout));
+                if (reply == null)
+                {
+                    // SendUssd renvoie null pour toute erreur (port occupé, modem débranché, pas de réponse...) sans
+                    // distinguer laquelle. CheckLink ne coûte rien à l'opérateur et donne un message plus précis.
+                    var check = await Task.Run(() => _modem.CheckLink(op.ComPort));
+                    return (false, check.Online ? "Aucune réponse à la requête de solde (la liaison de base fonctionne)." : check.Message);
+                }
+
+                try
+                {
+                    // Mobilis ne renvoie pas le solde dans la réponse USSD elle-même, mais par SMS séparé (parfois coupé en plusieurs messages).
+                    if (op.ConfirmationViaSms)
+                    {
+                        var sms = await Task.Run(() => _modem.WaitForSmsBatch(op.ComPort, existingSms, SmsTimeout));
+                        var text = sms != null ? FormatBalance(op, sms) : reply;
+                        var usage = await Task.Run(() => _modem.GetSmsStorageUsage(op.ComPort));
+                        return (true, AppendStorageWarning(text, usage));
+                    }
+                    return (true, FormatBalance(op, reply));
+                }
+                finally
+                {
+                    // Une requête de solde n'attend pas de confirmation de notre part : si la réponse se termine par
+                    // un menu (ex. Djezzy, « 1:Plus de detail Bonus »), la session USSD reste ouverte côté réseau tant
+                    // qu'elle n'est pas fermée explicitement, et la requête suivante peut être refusée (« max number
+                    // of menu retries »).
+                    await Task.Run(() => _modem.CancelUssd(op.ComPort));
+                }
+            });
+            results.Add(new BalanceResult(op.Name, success, message));
         }
         return results;
     }
@@ -460,6 +660,82 @@ public class CreditTransferService
         {
             gate.Release();
         }
+    }
+
+    /// <summary>
+    /// Mobilis renvoie en une seule réponse le solde des 4 « distributeurs » du compte (Poste, Assilou, Data, GTS),
+    /// sous la forme « Poste est : 10.00 DZD . Assilou est : ... ». On n'affiche que celui utilisé pour les
+    /// transferts de cet opérateur : le chiffre juste après {numero} dans sa requête USSD (ex. *630*{numero}*03*...
+    /// envoie depuis le distributeur 3, Data). Les opérateurs sans ce découpage affichent la réponse telle quelle.
+    /// </summary>
+    private static readonly Dictionary<int, string> MobilisDistributeurs = new()
+    {
+        [1] = "Poste",
+        [2] = "Assilou",
+        [3] = "Data",
+        [4] = "GTS",
+    };
+
+    private static string FormatBalance(Operator op, string reply)
+    {
+        var distributeur = ExtractDistributeurNumber(op.UssdTemplate);
+        if (distributeur is { } d && ExtractDistributeurBalance(reply, d) is { } distBalance)
+            return $"{distBalance} DZD";
+
+        // Ex. Djezzy : "VOTRE SOLDE EST 6523.35 DA. VOTRE ANCIEN CREDIT EST ... 1:Plus de detail Bonus" → juste "6523.35 DA".
+        if (ExtractSoldeEst(reply) is { } solde) return solde;
+
+        // Ex. Ooredoo : "Votre credit Storm-Credit est 10447 Dinar Fidélité:50DA." → juste "10447".
+        if (ExtractStormCredit(reply) is { } storm) return storm;
+
+        return reply;
+    }
+
+    /// <summary>Extrait le nombre (et son unité) juste après « VOTRE SOLDE EST », sans le reste du message.</summary>
+    internal static string? ExtractSoldeEst(string text)
+    {
+        var match = Regex.Match(text, @"VOTRE\s+SOLDE\s+EST\s*:?\s*([\d]+(?:[.,]\d+)?\s*[A-Za-z]*)", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value.Trim() : null;
+    }
+
+    /// <summary>Extrait seulement le nombre juste après « Votre credit Storm-Credit est » (Ooredoo), sans le reste du message.</summary>
+    internal static string? ExtractStormCredit(string text)
+    {
+        var match = Regex.Match(text, @"VOTRE\s+CREDIT\s+STORM-CREDIT\s+EST\s*:?\s*([\d]+(?:[.,]\d+)?)", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value.Replace(',', '.') : null;
+    }
+
+    /// <summary>À partir de ce taux d'occupation, on avertit que la mémoire SMS risque de bloquer l'arrivée de nouveaux messages.</summary>
+    private const double StorageWarningThreshold = 0.8;
+
+    /// <summary>
+    /// Ajoute un avertissement si la mémoire SMS de la SIM est presque pleine : au-delà, le réseau ne peut plus
+    /// livrer de nouveau SMS (ex. le solde ou la confirmation Mobilis), sans message d'erreur visible ailleurs que
+    /// sur le modem lui-même.
+    /// </summary>
+    internal static string AppendStorageWarning(string message, (int Used, int Total)? storage)
+    {
+        if (storage is not { } s || s.Total == 0 || (double)s.Used / s.Total < StorageWarningThreshold) return message;
+        return $"{message} Attention : mémoire SMS de la SIM presque pleine ({s.Used}/{s.Total}) — les nouveaux SMS risquent de ne pas arriver tant qu'elle n'est pas libérée (AT+CMGD=1,4 pour tout effacer).";
+    }
+
+    /// <summary>Le chiffre juste après {numero} dans une requête USSD (ex. 3 dans *630*{numero}*03*{montant}*00000#).</summary>
+    internal static int? ExtractDistributeurNumber(string? ussdTemplate)
+    {
+        if (string.IsNullOrWhiteSpace(ussdTemplate)) return null;
+        const string marker = "{numero}";
+        var index = ussdTemplate.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (index < 0) return null;
+        var match = Regex.Match(ussdTemplate[(index + marker.Length)..], @"^\*(\d+)");
+        return match.Success ? int.Parse(match.Groups[1].Value) : null;
+    }
+
+    /// <summary>Extrait la valeur qui suit le nom du distributeur (ex. « Data est : 155.00 DZD »), ou null si absente.</summary>
+    internal static string? ExtractDistributeurBalance(string text, int distributeur)
+    {
+        if (!MobilisDistributeurs.TryGetValue(distributeur, out var label)) return null;
+        var match = Regex.Match(text, $@"{Regex.Escape(label)}\s*est\s*:?\s*([\d]+(?:[.,]\d+)?)", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value.Replace(',', '.') : null;
     }
 
     private void SetSending(int delta)

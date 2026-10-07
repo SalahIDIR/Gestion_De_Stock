@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
-using GestionStock.Puces.Modem;
 
 namespace GestionStock.Puces.ViewModels;
 
@@ -46,8 +45,8 @@ public partial class OperatorChat : ObservableObject
     [ObservableProperty] private Conversation? _selectedConversation;
     [ObservableProperty] private string _ussdCode = "";
 
-    /// <summary>Remplace les conversations de SMS reçus, en gardant les requêtes USSD.</summary>
-    public void ReplaceReceivedMessages(IEnumerable<SmsMessage> received)
+    /// <summary>Remplace les conversations de SMS reçus (de la SIM, ou de l'archive locale), en gardant les requêtes USSD.</summary>
+    public void ReplaceReceivedMessages(IEnumerable<(string Phone, DateTime? Date, string Body)> received)
     {
         var selectedTitle = SelectedConversation?.Title;
         for (var i = Conversations.Count - 1; i >= 0; i--)

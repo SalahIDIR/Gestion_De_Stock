@@ -50,11 +50,29 @@ public class FakeModemPort : IModemPort
         return SmsResponse != null && accept(SmsResponse) ? SmsResponse : null;
     }
 
+    /// <summary>Résultat déjà recollé renvoyé par <see cref="WaitForSmsBatch"/> (le vrai recollage est testé séparément).</summary>
+    public string? SmsBatchResponse { get; set; }
+    public List<string> SmsBatchCalls { get; } = new();
+
+    public string? WaitForSmsBatch(string comPort, IReadOnlySet<int> existing, TimeSpan timeout)
+    {
+        SmsBatchCalls.Add(comPort);
+        return SmsBatchResponse;
+    }
+
     /// <summary>Résultat de CheckLink par port ; un port absent est considéré comme débranché.</summary>
     public Dictionary<string, ModemCheck> LinkChecks { get; } = new();
 
     public ModemCheck CheckLink(string comPort)
         => LinkChecks.TryGetValue(comPort, out var check) ? check : new ModemCheck(false, "Le modem ne répond pas.");
+
+    /// <summary>Null par défaut (comme si la question échouait) ; configurable par les tests qui testent l'avertissement.</summary>
+    public (int Used, int Total)? StorageUsage { get; set; }
+
+    public (int Used, int Total)? GetSmsStorageUsage(string comPort) => StorageUsage;
+
+    public List<string> CancelUssdCalls { get; } = new();
+    public void CancelUssd(string comPort) => CancelUssdCalls.Add(comPort);
 }
 
 public class CreditTransferTests
@@ -312,6 +330,17 @@ public class CreditTransferTests
     }
 
     [Fact]
+    public void ParseSmsList_decodes_a_ucs2_hex_body_even_when_split_across_several_lines()
+    {
+        // "ABCD" en UCS2 hexadecimal ("0041004200430044") coupe en deux lignes par le modem : chaque ligne doit etre
+        // decodee seule, sinon l'espace de jonction casse la detection "tout en hexadecimal" (bug reel observe).
+        var listing = "+CMGL: 1,\"REC READ\",\"+213...\",,\"26/10/07,10:00:00+04\"\r\n00410042\r\n00430044\r\nOK\r\n";
+
+        var sms = Assert.Single(SerialModemPort.ParseSmsList(listing));
+        Assert.Equal("AB CD", sms.Body);
+    }
+
+    [Fact]
     public async Task A_failed_line_can_be_retried_and_a_sent_line_is_never_resent()
     {
         var c = await SetupAsync();
@@ -403,13 +432,249 @@ public class CreditTransferTests
     {
         var c = await SetupAsync();
         using var _ = c.Db;
-        // La file est vide : SendUssd renvoie null (pas de réponse).
+        // La file est vide : SendUssd renvoie null (pas de réponse). CheckLink (non configuré) répond "ne répond pas" par défaut.
 
         var results = await c.Transfers.CheckBalancesAsync();
 
         var djezzy = results.Single(r => r.OperatorName == "Djezzy");
         Assert.False(djezzy.Success);
-        Assert.Equal("Aucune réponse du modem.", djezzy.Message);
+        Assert.Equal("Le modem ne répond pas.", djezzy.Message);
+    }
+
+    [Fact]
+    public async Task CheckBalancesAsync_reports_the_real_cause_when_the_port_cannot_even_be_opened()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        c.Modem.LinkChecks["COM5"] = new ModemCheck(false, "Impossible d'ouvrir le port COM5 (modem débranché ou déjà utilisé).");
+        // La file est vide : SendUssd renvoie null comme si le port était occupé par un autre programme.
+
+        var results = await c.Transfers.CheckBalancesAsync();
+
+        Assert.Equal("Impossible d'ouvrir le port COM5 (modem débranché ou déjà utilisé).",
+            results.Single(r => r.OperatorName == "Djezzy").Message);
+    }
+
+    [Fact]
+    public async Task CheckBalancesAsync_reports_a_generic_message_when_the_link_is_fine_but_ussd_still_fails()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        c.Modem.LinkChecks["COM5"] = new ModemCheck(true, "En ligne.");
+        // La file est vide : SendUssd renvoie null malgré une liaison qui fonctionne (ex. requête USSD refusée).
+
+        var results = await c.Transfers.CheckBalancesAsync();
+
+        Assert.Equal("Aucune réponse à la requête de solde (la liaison de base fonctionne).",
+            results.Single(r => r.OperatorName == "Djezzy").Message);
+    }
+
+    [Fact]
+    public async Task CheckBalancesAsync_rebuilds_the_mobilis_balance_from_an_sms_split_in_two_and_shows_only_its_distributeur()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        var settings = new SettingsService(c.Db);
+        var mobilis = (await settings.GetOperatorsAsync()).Single(o => o.Name == "Mobilis");
+        // Le "03" juste après {numero} désigne le distributeur Data (3e de la liste Poste/Assilou/Data/GTS).
+        // Mobilis confirme par SMS (comme pour un transfert) : la réponse USSD n'est qu'un accusé de réception.
+        await settings.SaveOperatorRoutingAsync(mobilis.Id, "COM6", "*630*{numero}*03*{montant}*00000#", "1", "TRANSFERE", true, "*632*01*00000#");
+        c.Modem.UssdResponses.Enqueue("peu importe, consomme par Djezzy (deja configure dans SetupAsync)");
+        c.Modem.UssdResponses.Enqueue("Votre demande est prise en charge, un sms vous sera envoye.");
+        // Exemple réel : le SMS arrive coupé en deux, en plein mot ("...DAT" puis "A est...").
+        c.Modem.SmsBatchResponse = "Votre Balance: POSTE est : 0.00 DZD . ASSILOU est : 0.00 DZD . DATA est : 105.00 DZD . GTS est : 0.00 DZD . MOBILIS est : 20.00 DZD .";
+
+        var results = await c.Transfers.CheckBalancesAsync();
+
+        var mobilisResult = results.Single(r => r.OperatorName == "Mobilis");
+        Assert.True(mobilisResult.Success);
+        Assert.Equal("105.00 DZD", mobilisResult.Message);
+        Assert.Contains("COM6", c.Modem.SmsBatchCalls);
+    }
+
+    [Fact]
+    public async Task CheckBalancesAsync_shows_the_raw_ussd_reply_when_mobilis_sms_never_arrives()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        var settings = new SettingsService(c.Db);
+        var mobilis = (await settings.GetOperatorsAsync()).Single(o => o.Name == "Mobilis");
+        await settings.SaveOperatorRoutingAsync(mobilis.Id, "COM6", "*630*{numero}*03*{montant}*00000#", "1", "TRANSFERE", true, "*632*01*00000#");
+        c.Modem.UssdResponses.Enqueue("peu importe, consomme par Djezzy (deja configure dans SetupAsync)");
+        c.Modem.UssdResponses.Enqueue("Votre demande est prise en charge, un sms vous sera envoye.");
+        // SmsBatchResponse reste null : aucun SMS ne "arrive" avant la fin du délai.
+
+        var results = await c.Transfers.CheckBalancesAsync();
+
+        var mobilisResult = results.Single(r => r.OperatorName == "Mobilis");
+        Assert.True(mobilisResult.Success); // la requête USSD a bien eu une réponse, même sans le détail du solde
+        Assert.Equal("Votre demande est prise en charge, un sms vous sera envoye.", mobilisResult.Message);
+    }
+
+    [Fact]
+    public async Task CheckBalancesAsync_warns_when_the_sim_sms_storage_is_almost_full()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        var settings = new SettingsService(c.Db);
+        var mobilis = (await settings.GetOperatorsAsync()).Single(o => o.Name == "Mobilis");
+        await settings.SaveOperatorRoutingAsync(mobilis.Id, "COM6", "*630*{numero}*03*{montant}*00000#", "1", "TRANSFERE", true, "*632*01*00000#");
+        c.Modem.UssdResponses.Enqueue("peu importe, consomme par Djezzy (deja configure dans SetupAsync)");
+        c.Modem.UssdResponses.Enqueue("Votre demande est prise en charge, un sms vous sera envoye.");
+        c.Modem.SmsBatchResponse = "Votre Balance: DATA est : 105.00 DZD .";
+        c.Modem.StorageUsage = (25, 25); // pleine, comme observé sur la vraie carte SIM
+
+        var results = await c.Transfers.CheckBalancesAsync();
+
+        var mobilisResult = results.Single(r => r.OperatorName == "Mobilis");
+        Assert.Contains("105.00 DZD", mobilisResult.Message);
+        Assert.Contains("mémoire SMS", mobilisResult.Message);
+        Assert.Contains("25/25", mobilisResult.Message);
+    }
+
+    [Fact]
+    public async Task CheckBalancesAsync_does_not_warn_when_the_sim_sms_storage_has_room()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        var settings = new SettingsService(c.Db);
+        var mobilis = (await settings.GetOperatorsAsync()).Single(o => o.Name == "Mobilis");
+        await settings.SaveOperatorRoutingAsync(mobilis.Id, "COM6", "*630*{numero}*03*{montant}*00000#", "1", "TRANSFERE", true, "*632*01*00000#");
+        c.Modem.UssdResponses.Enqueue("peu importe, consomme par Djezzy (deja configure dans SetupAsync)");
+        c.Modem.UssdResponses.Enqueue("Votre demande est prise en charge, un sms vous sera envoye.");
+        c.Modem.SmsBatchResponse = "Votre Balance: DATA est : 105.00 DZD .";
+        c.Modem.StorageUsage = (3, 25);
+
+        var results = await c.Transfers.CheckBalancesAsync();
+
+        Assert.Equal("105.00 DZD", results.Single(r => r.OperatorName == "Mobilis").Message);
+    }
+
+    [Theory]
+    [InlineData(25, 25, true)]
+    [InlineData(20, 25, true)] // 80% : seuil atteint
+    [InlineData(19, 25, false)]
+    [InlineData(0, 25, false)]
+    public void AppendStorageWarning_warns_from_eighty_percent_full(int used, int total, bool expectWarning)
+    {
+        var message = CreditTransferService.AppendStorageWarning("Solde : 100 DZD", (used, total));
+        Assert.Equal(expectWarning, message.Contains("mémoire SMS"));
+    }
+
+    [Fact]
+    public void AppendStorageWarning_leaves_the_message_alone_when_usage_is_unknown()
+    {
+        Assert.Equal("Solde : 100 DZD", CreditTransferService.AppendStorageWarning("Solde : 100 DZD", null));
+    }
+
+    [Fact]
+    public void ParseStorageUsage_reads_used_and_total_from_a_cpms_reply()
+    {
+        Assert.Equal((25, 25), SerialModemPort.ParseStorageUsage("+CPMS: \"SM\",25,25,\"SM\",25,25,\"SM\",25,25"));
+        Assert.Null(SerialModemPort.ParseStorageUsage("ERROR"));
+    }
+
+    [Fact]
+    public async Task CheckBalancesAsync_closes_the_ussd_session_after_reading_the_balance()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        c.Modem.UssdResponses.Enqueue("VOTRE SOLDE EST 6523.35 DA.\n1:Plus de detail Bonus");
+
+        await c.Transfers.CheckBalancesAsync();
+
+        Assert.Contains("COM5", c.Modem.CancelUssdCalls); // referme la session pour que la requete suivante ne soit pas refusee
+    }
+
+    [Fact]
+    public async Task CheckBalancesAsync_shows_only_the_number_after_votre_solde_est_for_djezzy()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        c.Modem.UssdResponses.Enqueue(
+            "VOTRE SOLDE EST 6523.35 DA. VOTRE ANCIEN CREDIT EST 0.00 DA.VOTRE BONUS EST 3852.90 DA. VOTRE BONUS INTERNET EST 0.00 MO.\n1:Plus de detail Bonus");
+
+        var results = await c.Transfers.CheckBalancesAsync();
+
+        Assert.Equal("6523.35 DA", results.Single(r => r.OperatorName == "Djezzy").Message);
+    }
+
+    [Theory]
+    [InlineData("VOTRE SOLDE EST 6523.35 DA. VOTRE ANCIEN CREDIT EST 0.00 DA.", "6523.35 DA")]
+    [InlineData("votre solde est : 100 DZD", "100 DZD")]
+    [InlineData("Solde disponible : 5000 DA", null)]
+    public void ExtractSoldeEst_reads_only_the_number_and_unit(string text, string? expected)
+    {
+        Assert.Equal(expected, CreditTransferService.ExtractSoldeEst(text));
+    }
+
+    [Theory]
+    [InlineData("Votre credit Storm-Credit est 10447 Dinar Fidélité:50DA.", "10447")]
+    [InlineData("votre credit storm-credit est : 99", "99")]
+    [InlineData("VOTRE SOLDE EST 6523.35 DA.", null)]
+    public void ExtractStormCredit_reads_only_the_number(string text, string? expected)
+    {
+        Assert.Equal(expected, CreditTransferService.ExtractStormCredit(text));
+    }
+
+    [Fact]
+    public async Task CheckBalancesAsync_shows_only_the_number_for_ooredoo_storm_credit()
+    {
+        var c = await SetupAsync();
+        using var _ = c.Db;
+        var settings = new SettingsService(c.Db);
+        var ooredoo = (await settings.GetOperatorsAsync()).Single(o => o.Name == "Ooredoo");
+        await settings.SaveOperatorRoutingAsync(ooredoo.Id, "COM20", "*599*{numero}*{montant}*2008#", "1", "STORMCREDIT", false, "*200*2008#");
+        c.Modem.UssdResponses.Enqueue("peu importe, consomme par Djezzy (deja configure dans SetupAsync)");
+        c.Modem.UssdResponses.Enqueue("Votre credit Storm-Credit est 10447 Dinar Fidélité:50DA.");
+
+        var results = await c.Transfers.CheckBalancesAsync();
+
+        Assert.Equal("10447", results.Single(r => r.OperatorName == "Ooredoo").Message);
+    }
+
+    [Fact]
+    public async Task CheckBalancesAsync_shows_the_full_reply_when_no_distributeur_can_be_matched()
+    {
+        var c = await SetupAsync(); // Djezzy n'a pas de decoupage par distributeur
+        using var _ = c.Db;
+        c.Modem.UssdResponses.Enqueue("Solde disponible : 5000 DA");
+
+        var results = await c.Transfers.CheckBalancesAsync();
+
+        Assert.Equal("Solde disponible : 5000 DA", results.Single(r => r.OperatorName == "Djezzy").Message);
+    }
+
+    [Theory]
+    [InlineData("*630*{numero}*03*{montant}*00000#", 3)]
+    [InlineData("*760*{numero}*{montant}*2008#", null)]
+    [InlineData(null, null)]
+    public void ExtractDistributeurNumber_reads_the_digit_right_after_numero(string? template, int? expected)
+    {
+        Assert.Equal(expected, CreditTransferService.ExtractDistributeurNumber(template));
+    }
+
+    [Fact]
+    public void ExtractDistributeurBalance_finds_the_value_after_the_distributeur_name()
+    {
+        const string reply = "Poste est : 10.00 DZD . Assilou est : 0.00 DZD . Data est : 155.00 DZD . GTS est : 25.00 DZD .";
+        Assert.Equal("155.00", CreditTransferService.ExtractDistributeurBalance(reply, 3));
+        Assert.Equal("25.00", CreditTransferService.ExtractDistributeurBalance(reply, 4));
+        Assert.Null(CreditTransferService.ExtractDistributeurBalance(reply, 5)); // aucun distributeur numero 5
+    }
+
+    [Fact]
+    public void ExtractDistributeurBalance_returns_null_when_the_label_is_absent()
+    {
+        Assert.Null(CreditTransferService.ExtractDistributeurBalance("Reponse sans les distributeurs attendus", 3));
+    }
+
+    [Fact]
+    public void DecodeIfUcs2Hex_decodes_ucs2_hex_and_leaves_plain_text_alone()
+    {
+        Assert.Equal("ABCD", SerialModemPort.DecodeIfUcs2Hex("0041004200430044"));
+        Assert.Equal("Solde disponible : 5000 DA", SerialModemPort.DecodeIfUcs2Hex("Solde disponible : 5000 DA"));
+        Assert.Equal("0778123456", SerialModemPort.DecodeIfUcs2Hex("0778123456"));
     }
 
     [Fact]
@@ -467,6 +732,15 @@ public class CreditTransferTests
     public void ExtractQuoted_returns_null_when_there_is_no_cusd_marker()
     {
         Assert.Null(SerialModemPort.ExtractQuoted("ERROR\r\n", "+CUSD:"));
+    }
+
+    [Fact]
+    public void ExtractQuoted_reads_the_message_even_with_a_real_line_break_inside_the_quotes()
+    {
+        // Cas reel observe (Djezzy, *766#) : le modem renvoie un vrai retour a la ligne a l'interieur du texte.
+        var text = "AT+CUSD=1,\"*766#\",15\r\nOK\r\n\r\n+CUSD: 1,\"VOTRE SOLDE EST 6523.35 DA.\n1:Plus de detail Bonus\",68\r\n";
+
+        Assert.Equal("VOTRE SOLDE EST 6523.35 DA.\n1:Plus de detail Bonus", SerialModemPort.ExtractQuoted(text, "+CUSD:"));
     }
 
     [Fact]

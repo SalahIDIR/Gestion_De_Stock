@@ -70,11 +70,14 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <TextBox Text="{Binding SelectedOperator.UssdCode, UpdateSourceTrigger=PropertyChanged}" Margin="0"
                                  ToolTip="Code USSD à envoyer, ex. *766#"/>
                         <Button Grid.Column="1" Content="Envoyer USSD" Command="{Binding SendUssdCommand}" Margin="8,0,0,0"/>
                         <Button Grid.Column="2" Content="Solde" Command="{Binding CheckBalanceCommand}" Margin="8,0,0,0"/>
+                        <Button Grid.Column="3" Content="Fermer la session" Command="{Binding CloseUssdSessionCommand}" Margin="8,0,0,0"
+                                ToolTip="Si une réponse se termine par un menu (ex. « 1:Plus de detail Bonus »), la session reste ouverte côté réseau : à fermer avant d'envoyer une nouvelle requête différente."/>
                     </Grid>
 
                     <TextBlock DockPanel.Dock="Top" Text="{Binding SelectedOperator.SelectedConversation.Title}"
